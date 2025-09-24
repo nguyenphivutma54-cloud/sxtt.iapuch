@@ -25,39 +25,6 @@ Nguyenphivutma54-cloud
 
 ## License
 MIT
-          const entries = Object.entries(obj).sort((a,b)=>b[1]-a[1]);
-          const aoa = [["Tên", "Số lượng", "Đơn vị"]];
-          if (entries.length === 0) {
-            aoa.push(["(trống)", 0, "cây"]);
-          } else {
-            entries.forEach(([k,v])=> aoa.push([k, Number(v)||0, "cây"]));
-          }
-          const ws = XLSX.utils.aoa_to_sheet(aoa);
-          XLSX.utils.book_append_sheet(wb, ws, title);
-        }
-
-        // 1. Loại cây
-        sheetFromObjectCounter('LoaiCay', byType);
-        // 2. Tổng số cây
-        const wsTotal = XLSX.utils.aoa_to_sheet([["Chỉ tiêu", "Giá trị", "Đơn vị"],["Tổng số cây", Number(filtered.length)||0, "cây"]]);
-        XLSX.utils.book_append_sheet(wb, wsTotal, 'Tong');
-        // 3. Chất lượng cây
-        sheetFromObjectCounter('ChatLuong', byQuality);
-        // 4. Dịch bệnh
-        sheetFromObjectCounter('DichBenh', byDisease);
-        // 5. Thong tin quan ly
-        sheetFromObjectCounter('NongTruong', byFarm);
-        sheetFromObjectCounter('Doi', byTeam);
-        sheetFromObjectCounter('Lo', byLot);
-        sheetFromObjectCounter('CongNhan', byWorker);
-
-        // 6. Thêm sheet Biểu đồ (Chart data) để người dùng mở Excel là có sẵn nguồn vẽ
-        const chartAoa = [["Sheet","Tên","Giá trị"]];
-        Object.entries(byType).forEach(([k,v])=> chartAoa.push(["LoaiCay", k, Number(v)||0]));
-        chartAoa.push(["","",""]);
-        Object.entries(byQuality).forEach(([k,v])=> chartAoa.push(["ChatLuong", k, Number(v)||0]));
-        chartAoa.push(["","",""]);
-        Object.entries(byDisease).forEach(([k,v])=> chartAoa.push(["DichBenh", k, Number(v)||0]));
         const wsChart = XLSX.utils.aoa_to_sheet(chartAoa);
         XLSX.utils.book_append_sheet(wb, wsChart, 'ChartData');
 
