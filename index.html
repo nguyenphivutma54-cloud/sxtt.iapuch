@@ -103,6 +103,18 @@
     }
   </script>
 
+<script>
+// Tự động reload dữ liệu từ OneDrive mỗi 5 phút
+setInterval(function() {
+  const url = localStorage.getItem('googleSheetUrl');
+  if (url) {
+    if (typeof loadFromGoogleSheet === 'function') {
+      loadFromGoogleSheet();
+      console.log('Đã tự động reload dữ liệu từ OneDrive:', url);
+    }
+  }
+}, 5 * 60 * 1000); // 5 phút
+</script>
 </body>
 </html>
 
