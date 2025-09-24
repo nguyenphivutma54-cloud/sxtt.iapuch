@@ -1,1 +1,4501 @@
-# sxtt.iapuch
+# Quản lý cây trồng - VN2000
+
+Dự án này là ứng dụng web quản lý cây trồng, hỗ trợ thống kê, lọc, chỉnh sửa và xuất báo cáo dữ liệu cây trồng theo hệ tọa độ VN2000 (chuẩn AutoCAD Việt Nam).
+
+## Tính năng chính
+- Hiển thị bản đồ cây trồng với các lớp bản đồ Google Hybrid/Satellite
+- Lọc, tìm kiếm, thống kê theo loại cây, chất lượng, bệnh, nông trường, đội, lô, công nhân...
+- Chỉnh sửa thông tin cây trực tiếp trên bản đồ
+- Xuất báo cáo thống kê ra file Excel
+- Hỗ trợ nhập dữ liệu từ file Excel, CSV, Google Sheets, OneDrive
+
+## Hướng dẫn sử dụng
+1. Truy cập website (hoặc mở file `index.html` trên trình duyệt)
+2. Tải lên file dữ liệu cây trồng (Excel/CSV) hoặc nhập link Google Sheets/OneDrive
+3. Sử dụng các bộ lọc, chức năng thống kê, chỉnh sửa và xuất báo cáo theo nhu cầu
+
+## Công nghệ sử dụng
+- HTML, CSS, JavaScript
+- Leaflet.js (bản đồ)
+- Chart.js (biểu đồ)
+- SheetJS (xlsx) để xuất/nhập dữ liệu Excel
+
+## Tác giả
+Nguyenphivutma54-cloud
+
+## License
+MIT
+          const entries = Object.entries(obj).sort((a,b)=>b[1]-a[1]);
+          const aoa = [["Tên", "Số lượng", "Đơn vị"]];
+          if (entries.length === 0) {
+            aoa.push(["(trống)", 0, "cây"]);
+          } else {
+            entries.forEach(([k,v])=> aoa.push([k, Number(v)||0, "cây"]));
+          }
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          XLSX.utils.book_append_sheet(wb, ws, title);
+        }
+
+        // 1. Loại cây
+        sheetFromObjectCounter('LoaiCay', byType);
+        // 2. Tổng số cây
+        const wsTotal = XLSX.utils.aoa_to_sheet([["Chỉ tiêu", "Giá trị", "Đơn vị"],["Tổng số cây", Number(filtered.length)||0, "cây"]]);
+        XLSX.utils.book_append_sheet(wb, wsTotal, 'Tong');
+        // 3. Chất lượng cây
+        sheetFromObjectCounter('ChatLuong', byQuality);
+        // 4. Dịch bệnh
+        sheetFromObjectCounter('DichBenh', byDisease);
+        // 5. Thong tin quan ly
+        sheetFromObjectCounter('NongTruong', byFarm);
+        sheetFromObjectCounter('Doi', byTeam);
+        sheetFromObjectCounter('Lo', byLot);
+        sheetFromObjectCounter('CongNhan', byWorker);
+
+        // 6. Thêm sheet Biểu đồ (Chart data) để người dùng mở Excel là có sẵn nguồn vẽ
+        const chartAoa = [["Sheet","Tên","Giá trị"]];
+        Object.entries(byType).forEach(([k,v])=> chartAoa.push(["LoaiCay", k, Number(v)||0]));
+        chartAoa.push(["","",""]);
+        Object.entries(byQuality).forEach(([k,v])=> chartAoa.push(["ChatLuong", k, Number(v)||0]));
+        chartAoa.push(["","",""]);
+        Object.entries(byDisease).forEach(([k,v])=> chartAoa.push(["DichBenh", k, Number(v)||0]));
+        const wsChart = XLSX.utils.aoa_to_sheet(chartAoa);
+        XLSX.utils.book_append_sheet(wb, wsChart, 'ChartData');
+
+        // Lưu file
+        XLSX.writeFile(wb, 'BaoCao_ThongKe.xlsx');
+      } catch(err) {
+        console.error(err);
+        alert('Xuất báo cáo lỗi: '+ err.message);
+      }
+    }
+  </script>
+
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Quản lý cây trồng - VN2000</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    #map { height: 100vh; width: 100%; }
+    
+    .control-panel {
+      position: fixed; top: 10px; left: 10px; background: rgba(255, 255, 255, 0.95);
+      padding: 10px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000; max-width: 224px; backdrop-filter: blur(10px);
+      resize: both; min-width: 140px; min-height: 150px; overflow: visible;
+    }
+    
+    .control-panel-header {
+      background: #3498db; color: white; padding: 6px 10px; margin: -10px -10px 8px -10px;
+      border-radius: 8px 8px 0 0; cursor: move; user-select: none;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    
+    .control-panel-header h3 { margin: 0; font-size: 12px; font-weight: 600; }
+    
+    .control-panel-controls {
+      display: flex; gap: 4px;
+    }
+    
+    .control-panel-btn {
+      width: 18px; height: 18px; border: none; border-radius: 3px; cursor: pointer;
+      font-size: 10px; display: flex; align-items: center; justify-content: center;
+    }
+    
+    .minimize-btn { background: #f39c12; color: white; }
+    .close-btn { background: #e74c3c; color: white; }
+    
+    .control-group {
+      margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #eee;
+    }
+    
+    .control-group:last-child { border-bottom: none; margin-bottom: 0; }
+    
+    .control-group h4 {
+      margin: 0 0 4px 0; color: #2c3e50; font-size: 11px; font-weight: 600;
+      cursor: pointer; user-select: none;
+    }
+    
+    .control-group h4:after {
+      content: ' ▼'; font-size: 8px; float: right;
+    }
+    
+    .control-group h4.collapsed:after {
+      content: ' ▶';
+    }
+    
+    .control-group-content {
+      max-height: none; overflow: visible; 
+      transition: max-height 0.3s ease-out; padding-right: 0;
+    }
+    
+    .control-group-content.collapsed {
+      max-height: 0;
+      overflow: hidden;
+    }
+    
+    /* Cải thiện control panel content */
+    .control-panel-content {
+      max-height: none; overflow: visible; 
+      transition: max-height 0.3s ease-out; padding-right: 0;
+    }
+    
+    .control-panel-content.collapsed {
+      max-height: 0;
+    }
+    
+    
+    input, select, button {
+      width: 100%; padding: 4px 6px; margin: 2px 0; border: 1px solid #ddd;
+      border-radius: 4px; font-size: 10px; box-sizing: border-box;
+    }
+    
+    button { background: #3498db; color: white; border: none; cursor: pointer; }
+    button:hover { background: #2980b9; }
+    button.danger { background: #e74c3c; }
+    button.success { background: #27ae60; }
+    button.active { background: #e74c3c; animation: pulse 1.5s infinite; }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    
+    
+    .legend {
+      position: fixed; bottom: 20px; right: 20px; background: rgba(255, 255, 255, 0.95);
+      padding: 12px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000; backdrop-filter: blur(10px); max-width: 250px;
+      resize: both; min-width: 200px; min-height: 80px;
+      font-family: 'Cambria', 'Times New Roman', serif;
+    }
+    
+    .legend-header {
+      background: #27ae60;
+      color: white;
+      padding: 8px 12px;
+      margin: -12px -12px 8px -12px;
+      border-radius: 8px 8px 0 0;
+      cursor: move;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .legend-header h4 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .legend-controls {
+      display: flex;
+      gap: 4px;
+    }
+    
+    .legend-controls button {
+      width: 18px;
+      height: 18px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      padding: 0;
+    }
+    
+    .legend-content {
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    
+    /* Bảng thông tin chi tiết (removed) */
+    .detail-table-panel {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 255, 255, 0.98);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      z-index: 2000;
+      backdrop-filter: blur(15px);
+      min-width: 600px;
+      max-width: 90vw;
+      max-height: 80vh;
+      display: none;
+      resize: both;
+      overflow: hidden;
+      border: 2px solid #3498db;
+    }
+    
+    /* .detail-table-header removed */
+    
+    /* .detail-table-header h4 removed */
+    
+    /* .detail-table-controls removed */
+    
+    /* .detail-table-controls button removed */
+    
+    /* .detail-table-content removed */
+    
+    /* .detail-table removed */
+    
+    /* .detail-table th removed */
+    
+    /* .detail-table td removed */
+    
+    /* .detail-table tbody tr:hover removed */
+    
+    /* .detail-table tbody tr:nth-child(even) removed */
+    
+    /* .detail-table tbody tr:nth-child(even):hover removed */
+    
+    /* .detail-table-info removed */
+    
+    /* .detail-table-empty removed */
+    
+    /* .detail-table-empty i removed */
+    
+    .filter-info {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+    
+    .filter-info h5 {
+      margin: 0 0 4px 0;
+      color: #495057;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    
+    .filter-item {
+      display: flex;
+      justify-content: space-between;
+      margin: 2px 0;
+      padding: 1px 0;
+    }
+    
+    .filter-label {
+      font-weight: 600;
+      color: #495057;
+    }
+    
+    .filter-value {
+      font-weight: 700;
+      color: #27ae60;
+    }
+
+    /* Summary panel removed */
+    
+    .legend-item { display: flex; align-items: center; margin: 4px 0; }
+    .legend-color { width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; border: 1px solid #333; }
+    .legend-item span { font-size: 11px; }
+    
+    .status-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.8);
+      color: white; padding: 4px 8px; font-size: 8px; z-index: 1000;
+    }
+    
+    /* Bảng thống kê theo bộ lọc */
+    .filter-stats-panel {
+      position: fixed; top: 80px; right: 20px; z-index: 1201;
+      background: rgba(255,255,255,0.95); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 10px; min-width: 360px; max-height: 80vh; overflow: auto; backdrop-filter: blur(10px);
+    }
+    .filter-stats-panel h4 { margin: 0 0 8px 0; font-size: 14px; color: #2c3e50; }
+    .filter-stats-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .filter-stats-table th, .filter-stats-table td { padding: 6px 8px; border-bottom: 1px solid #e9ecef; text-align: left; }
+    .filter-stats-table th { background: #f8f9fa; color: #2c3e50; }
+    
+    /* ===== CSS CHO POPUP MỚI ===== */
+    .tree-popup {
+      min-width: 220px;
+      max-width: 300px; /* giảm chiều rộng */
+      max-height: 380px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 13px; /* tăng cỡ chữ tổng thể */
+      line-height: 1.25; /* giảm giãn dòng */
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .popup-header {
+      background: #f8f9fa;
+      padding: 6px 10px;
+      border-radius: 4px 4px 0 0;
+      border-left: 4px solid #3498db;
+      margin-bottom: 4px;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.2s;
+    }
+    
+    .popup-header:hover {
+      background: #e9ecef;
+    }
+    
+    .popup-header.collapsed::after {
+      content: " ▼";
+      float: right;
+      font-size: 10px;
+    }
+    
+    .popup-header.expanded::after {
+      content: " ▲";
+      float: right;
+      font-size: 10px;
+    }
+    
+    .popup-content.collapsed {
+      display: none;
+    }
+    
+    .popup-actions.collapsed {
+      display: none;
+    }
+    
+    .popup-header.success {
+      border-left-color: #27ae60;
+      background: #d4edda;
+    }
+    
+    .popup-header.edit-mode {
+      border-left-color: #e67e22;
+      background: #fff3cd;
+    }
+    
+    .popup-header h4 {
+      margin: 0;
+      color: #2c3e50;
+      font-size: 14px; /* tăng nhẹ tiêu đề */
+      font-weight: bold;
+    }
+    
+    .saved-indicator {
+      color: #27ae60;
+      font-size: 10px;
+      font-weight: normal;
+    }
+    
+    .popup-content {
+      padding: 0 4px;
+      overflow-y: auto;
+      flex: 1;
+      max-height: 280px; /* giảm chiều cao nội dung */
+    }
+    
+    .popup-content::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .popup-content::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 3px;
+    }
+    
+    .popup-content::-webkit-scrollbar-thumb {
+      background: #c1c1c1;
+      border-radius: 3px;
+    }
+    
+    .popup-content::-webkit-scrollbar-thumb:hover {
+      background: #a8a8a8;
+    }
+    
+    .info-grid, .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    
+    .info-group, .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .info-group label, .form-group label {
+      font-weight: bold;
+      margin-bottom: 1px;
+      font-size: 9px;
+      color: #2c3e50;
+    }
+    
+    .info-value {
+      padding: 2px 4px;
+      background: #f8f9fa;
+      border-radius: 2px;
+      font-size: 12px; /* tăng cỡ chữ giá trị */
+      color: #2c3e50;
+      min-height: 16px;
+    }
+    
+    .quality-tốt { color: #27ae60; font-weight: bold; }
+    .quality-trung-bình { color: #f39c12; font-weight: bold; }
+    .quality-kém { color: #e74c3c; font-weight: bold; }
+    .quality-unknown { color: #95a5a6; }
+    
+    .form-group input, .form-group select {
+      padding: 2px 4px;
+      border: 1px solid #ddd;
+      border-radius: 2px;
+      font-size: 9px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    
+    .form-group input:focus, .form-group select:focus {
+      outline: none;
+      border-color: #3498db;
+      box-shadow: 0 0 3px rgba(52, 152, 219, 0.3);
+    }
+    
+    .management-section {
+      margin: 4px 0;
+      padding: 4px;
+      background: #f8f9fa;
+      border-radius: 3px;
+      border-left: 2px solid #27ae60;
+    }
+    
+    .management-section h5 {
+      margin: 0 0 3px 0;
+      color: #27ae60;
+      font-size: 9px;
+    }
+    
+    .management-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3px;
+    }
+    
+    .management-grid .form-group.full-width,
+    .management-grid .info-group.full-width {
+      grid-column: 1 / -1;
+    }
+    
+    .popup-actions {
+      margin-top: 6px;
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      padding: 4px 0;
+    }
+    
+    .popup-actions button {
+      padding: 4px 8px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+    
+    .btn-save {
+      background: #27ae60;
+      color: white;
+    }
+    
+    .btn-save:hover {
+      background: #229954;
+    }
+    
+    .btn-edit {
+      background: #e67e22;
+      color: white;
+    }
+    
+    .btn-edit:hover {
+      background: #d35400;
+    }
+    
+    .btn-cancel {
+      background: #95a5a6;
+      color: white;
+    }
+    
+    .btn-cancel:hover {
+      background: #7f8c8d;
+    }
+    .filter-stats-section { margin-bottom: 10px; }
+    
+    
+    .edit-modal {
+      display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: white; padding: 12px 14px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      z-index: 2000; min-width: 280px; width: 360px; max-width: 90vw; max-height: 70vh; overflow: auto;
+    }
+    
+    .edit-modal h3 { margin: 0 0 15px 0; color: #2c3e50; }
+    .edit-modal label { display: block; margin: 10px 0 5px 0; font-weight: 600; color: #34495e; }
+    .edit-modal .button-group { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; position: sticky; bottom: 0; background: #fff; padding-top: 10px; border-top: 1px solid #e9ecef; }
+    .edit-modal button { padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; }
+    .edit-modal .save-btn { background: #27ae60; color: white; }
+    .edit-modal .cancel-btn { background: #95a5a6; color: white; }
+    .edit-modal .export-btn { background: #3498db; color: white; }
+    
+    /* CSS cho thước đo khoảng cách */
+    .distance-line {
+      stroke: #ff0000;
+      stroke-width: 3;
+      stroke-dasharray: 5, 5;
+      fill: none;
+    }
+    
+    .distance-marker {
+      background: #ff0000;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .distance-point {
+      fill: #ff0000;
+      stroke: white;
+      stroke-width: 2;
+      r: 6;
+    }
+    
+    .distance-total {
+      background: linear-gradient(135deg, #2c3e50, #34495e);
+      color: white;
+      padding: 4px 8px; /* nhỏ hơn */
+      border-radius: 6px;
+      font-size: 11px; /* nhỏ hơn */
+      font-weight: 600;
+      border: 2px solid #ff0000; /* mảnh hơn */
+      box-shadow: 0 3px 6px rgba(0,0,0,0.35);
+      text-align: center;
+      white-space: nowrap;
+      display: inline-block; /* vừa khít chữ */
+    }
+    
+    /* CSS cho panel bản đồ nằm ngang */
+    .map-panel-horizontal {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 6px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1001;
+      backdrop-filter: blur(10px);
+      resize: both;
+      min-width: 200px;
+      min-height: 40px;
+    }
+    
+    .map-panel-header {
+      background: #e74c3c;
+      color: white;
+      padding: 6px 8px;
+      margin: -8px -8px 6px -8px;
+      border-radius: 8px 8px 0 0;
+      cursor: move;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .map-panel-header h4 {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .map-panel-controls {
+      display: flex;
+      gap: 3px;
+    }
+    
+    .map-panel-controls button {
+      width: 16px;
+      height: 16px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      padding: 0;
+    }
+    
+    .map-panel-content {
+      max-height: 300px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      transition: max-height 0.3s ease-out;
+      padding-right: 3px;
+    }
+    
+    .map-panel-content.collapsed {
+      max-height: 0;
+    }
+    
+    .map-tool-horizontal {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    
+    .map-tool-btn-small {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-size: 12px;
+      width: 28px;
+      height: 28px;
+    }
+    
+    .map-tool-btn-small:hover {
+      background: #e9ecef;
+      border-color: #3498db;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .map-tool-btn-small.active {
+      background: #e74c3c;
+      color: white;
+      border-color: #c0392b;
+      animation: pulse 1.5s infinite;
+    }
+    
+    /* Custom scrollbar cho map panel */
+    .map-panel-content::-webkit-scrollbar {
+      width: 4px;
+    }
+    
+    .map-panel-content::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 2px;
+    }
+    
+    .map-panel-content::-webkit-scrollbar-thumb {
+      background: #bdc3c7;
+      border-radius: 2px;
+    }
+    
+    .map-panel-content::-webkit-scrollbar-thumb:hover {
+      background: #95a5a6;
+    }
+    
+    /* CSS cho panel thống kê dữ liệu */
+    .stats-panel {
+      position: fixed;
+      top: 90px; /* kéo xuống thêm 20px */
+      right: 10px; /* đặt panel ở góc phải như hình */
+      left: auto;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 6px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1201;
+      backdrop-filter: blur(10px);
+      resize: both;
+      min-width: 280px;
+      min-height: 60px;
+    }
+    
+    .stats-panel-header {
+      background: #27ae60;
+      color: white;
+      padding: 6px 8px;
+      margin: -8px -8px 6px -8px;
+      border-radius: 8px 8px 0 0;
+      cursor: move;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .stats-panel-header h4 {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .stats-panel-controls {
+      display: flex;
+      gap: 3px;
+    }
+    
+    .stats-panel-controls button {
+      width: 16px;
+      height: 16px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f39c12;
+      color: white;
+      margin: 0;
+      padding: 0;
+    }
+    
+    .stats-panel-controls button:hover {
+      background: #e67e22;
+    }
+    
+    .stats-panel-content {
+      font-size: 12px;
+      line-height: 1.4;
+      transition: max-height 0.3s ease-out;
+      padding-right: 3px;
+      overflow: visible; /* bỏ cuộn bên trong panel thống kê */
+    }
+    
+    .stats-panel-content.collapsed {
+      max-height: 0;
+    }
+    
+    /* Custom scrollbar cho stats panel */
+    .stats-panel-content::-webkit-scrollbar {
+      width: 4px;
+    }
+    
+    .stats-panel-content::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 2px;
+    }
+    
+    .stats-panel-content::-webkit-scrollbar-thumb {
+      background: #bdc3c7;
+      border-radius: 2px;
+    }
+    
+    .stats-panel-content::-webkit-scrollbar-thumb:hover {
+      background: #95a5a6;
+    }
+
+    /* Bỏ cuộn và giới hạn chiều cao trong các vùng chi tiết của thống kê */
+    #treeTypesDetail,
+    #diseaseDetails,
+    #yearDetails,
+    #farmDetails,
+    #teamDetails,
+    #lotDetails,
+    #workerDetails {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    
+    /* CSS cho panel thống kê bên phải - removed */
+  </style>
+</head>
+<body>
+  <div class="control-panel">
+    <div class="control-panel-header">
+      <h3>🎛️ Bảng điều khiển</h3>
+      <div class="control-panel-controls">
+        <button class="control-panel-btn minimize-btn" onclick="toggleControlPanel()" title="Thu gọn">−</button>
+      </div>
+    </div>
+    <div class="control-panel-content">
+      <div class="control-group">
+        <h4 onclick="toggleControlGroup(this)">📁 Dữ liệu</h4>
+        <div class="control-group-content">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="file" id="fileInput" accept=".xlsx,.csv" style="flex: 1; min-width: 0;" />
+            <button onclick="exportUpdatedData()" class="success" style="white-space: nowrap; padding: 8px 12px; font-size: 12px; width: 80px; flex-shrink: 0;">💾 Xuất</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h4 onclick="toggleControlGroup(this)">🔗 Google Sheets (tự động)</h4>
+        <div class="control-group-content">
+          <input type="text" id="googleSheetUrl" placeholder="Dán liên kết Google Sheets/OneDrive công khai (CSV/XLSX)" />
+          <div style="display:flex; gap:6px;">
+            <button onclick="loadFromGoogleSheet()">⬇️ Tải dữ liệu</button>
+            <button onclick="saveGoogleSheetUrl()">💾 Lưu URL</button>
+          </div>
+          <div style="font-size:10px; color:#6c757d; margin-top:2px;">
+            Chấp nhận: đường dẫn CSV (Publish to web) hoặc liên kết bảng tính dạng /spreadsheets/d/... (công khai). Có thể thêm tham số gid=...
+          </div>
+        </div>
+      </div>
+      
+      <div class="control-group">
+        <h4 onclick="toggleControlGroup(this)">🔍 Tìm kiếm ID</h4>
+        <div class="control-group-content">
+          <input type="text" id="searchBox" placeholder="🔍 Nhập ID cây..." onchange="searchById()" onkeyup="searchById()" />
+          <button onclick="clearSearch()" class="danger">🗑️ Xóa tìm kiếm</button>
+        </div>
+      </div>
+      
+      <div class="control-group">
+        <h4 onclick="toggleControlGroup(this)">🔽 Lọc dữ liệu</h4>
+        <div class="control-group-content">
+          <select id="statusFilter" onchange="filterMarkers()">
+            <option value="">Tất cả chất lượng</option>
+          </select>
+          <select id="typeFilter" onchange="filterMarkers()">
+            <option value="">Tất cả loại cây</option>
+          </select>
+          <select id="yearFilter" onchange="filterMarkers()">
+            <option value="">Tất cả năm trồng</option>
+          </select>
+          <select id="tenntFilter" onchange="filterMarkers()">
+            <option value="">Tất cả nông trường</option>
+          </select>
+          <select id="tendoiFilter" onchange="filterMarkers()">
+            <option value="">Tất cả đội</option>
+          </select>
+          <select id="tendtFilter" onchange="filterMarkers()">
+            <option value="">Tất cả đội trưởng</option>
+          </select>
+          <select id="tenloFilter" onchange="filterMarkers()">
+            <option value="">Tất cả lô</option>
+          </select>
+          <select id="tenttFilter" onchange="filterMarkers()">
+            <option value="">Tất cả tổ trưởng</option>
+          </select>
+          <select id="cnFilter" onchange="filterMarkers()">
+            <option value="">Tất cả công nhân</option>
+          </select>
+          <select id="diseaseFilter" onchange="filterMarkers()">
+            <option value="">Tất cả tình trạng bệnh</option>
+          </select>
+          <button onclick="clearFilters()" class="danger">🗑️ Xóa lọc</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Panel thống kê dữ liệu riêng biệt -->
+  <div class="stats-panel" id="statsPanel">
+    <div class="stats-panel-header" onmousedown="startDrag(event, 'statsPanel')">
+      <h4>📊 Thống kê dữ liệu</h4>
+      <div class="stats-panel-controls">
+        <button class="minimize-btn" onclick="toggleStatsPanel()" title="Thu gọn">−</button>
+      </div>
+    </div>
+    <div class="stats-panel-content">
+      <div id="dataStats" style="font-size: 9px; line-height: 1.1;">
+        <!-- Tổng quan -->
+        <div style="background: #f8f9fa; padding: 3px; border-radius: 3px; margin-bottom: 4px; border-left: 2px solid #3498db;">
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 9px;">📊 Tổng quan</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-bottom: 3px;">
+            <div><strong>Tổng cây:</strong> <span id="totalTrees" style="color: #27ae60; font-weight: bold;">0 cây</span></div>
+          </div>
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 8px;">🌳 Theo chủng loại: <span id="treeTypesHeaderTotal" style="font-weight:bold;">0 cây</span></div>
+          <div id="treeTypesDetail" style="font-size: 8px; line-height: 1.2; max-height: 60px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Chất lượng -->
+        <div style="background: #f8f9fa; padding: 3px; border-radius: 3px; margin-bottom: 4px; border-left: 2px solid #27ae60;">
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 9px;">🌱 Chất lượng: <span id="totalQualityTrees" style="color: #2c3e50; font-weight: bold;">0 cây</span></div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-bottom: 3px;">
+            <div><strong>Tốt:</strong> <span id="goodQuality" style="color: #27ae60; font-weight: bold;">0 cây</span></div>
+            <div><strong>TB:</strong> <span id="mediumQuality" style="color: #f39c12; font-weight: bold;">0 cây</span></div>
+            <div><strong>Kém:</strong> <span id="poorQuality" style="color: #e74c3c; font-weight: bold;">0 cây</span></div>
+          </div>
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 8px;">📊 Tỷ lệ:</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px;">
+            <div><strong>Tốt:</strong> <span id="goodQualityPercent" style="color: #27ae60; font-weight: bold;">0%</span></div>
+            <div><strong>TB:</strong> <span id="mediumQualityPercent" style="color: #f39c12; font-weight: bold;">0%</span></div>
+            <div><strong>Kém:</strong> <span id="poorQualityPercent" style="color: #e74c3c; font-weight: bold;">0%</span></div>
+        </div>
+      </div>
+      
+        <!-- Dịch bệnh -->
+        <div style="background: #f8f9fa; padding: 3px; border-radius: 3px; margin-bottom: 4px; border-left: 2px solid #e74c3c;">
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 9px;">🦠 Dịch bệnh: <span id="diseaseHeaderTotal" style="font-weight:bold;"></span></div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-bottom: 3px;">
+            <div><strong>Bệnh:</strong> <span id="diseasedTrees" style="color: #e74c3c; font-weight: bold;">0 cây</span></div>
+            <div><strong>Khỏe:</strong> <span id="healthyTrees" style="color: #27ae60; font-weight: bold;">0 cây</span></div>
+            <div><strong>Bệnh phổ biến:</strong> <span id="commonDisease" style="color: #8e44ad; font-weight: bold;">-</span></div>
+            <div><strong>Chưa rõ:</strong> <span id="unknownDisease" style="color: #95a5a6; font-weight: bold;">0 cây</span></div>
+          </div>
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 8px;">🦠 Theo loại bệnh: <span id="diseaseTypesHeaderTotal" style="font-weight:bold;">0 cây</span></div>
+          <div id="diseaseDetails" style="font-size: 8px; line-height: 1.2; max-height: 60px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Năm trồng -->
+        <div style="background: #f8f9fa; padding: 3px; border-radius: 3px; margin-bottom: 4px; border-left: 2px solid #8e44ad;">
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 9px;">📅 Năm trồng: <span id="yearHeaderTotal" style="font-weight:bold;">0 cây</span></div>
+          <div id="yearDetails" style="font-size: 8px; line-height: 1.2; max-height: 60px; overflow-y: auto;"></div>
+        </div>
+
+        <!-- Thông tin quản lý -->
+        <div style="background: #f8f9fa; padding: 3px; border-radius: 3px; margin-bottom: 4px; border-left: 2px solid #f39c12;">
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 9px;">👥 Quản lý</div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-bottom: 3px;">
+            <div><strong>Nông trường:</strong> <span id="totalFarms" style="color: #27ae60; font-weight: bold;">0</span></div>
+            <div><strong>Đội:</strong> <span id="totalTeams" style="color: #3498db; font-weight: bold;">0</span></div>
+            <div><strong>Lô:</strong> <span id="totalLots" style="color: #8e44ad; font-weight: bold;">0</span></div>
+            <div><strong>CN:</strong> <span id="totalWorkers" style="color: #e67e22; font-weight: bold;">0</span></div>
+          </div>
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 8px;">🏢 Nông trường: <span id="totalFarmTrees" style="color: #27ae60; font-weight: bold;">0 cây</span></div>
+          <div id="farmDetails" style="font-size: 8px; line-height: 1.2; max-height: 40px; overflow-y: auto; margin-bottom: 3px;"></div>
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 8px;">👥 Đội: <span id="totalTeamTrees" style="color: #3498db; font-weight: bold;">0 cây</span></div>
+          <div id="teamDetails" style="font-size: 8px; line-height: 1.2; max-height: 40px; overflow-y: auto; margin-bottom: 3px;"></div>
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 8px;">📦 Lô: <span id="totalLotTrees" style="color: #8e44ad; font-weight: bold;">0 cây</span></div>
+          <div id="lotDetails" style="font-size: 8px; line-height: 1.2; max-height: 40px; overflow-y: auto; margin-bottom: 3px;"></div>
+          <div style="font-weight: bold; color: #2c3e50; margin-bottom: 2px; font-size: 8px; cursor: pointer;" onclick="toggleWorkerDetails()">
+            👷 Công nhân: <span id="totalWorkerTrees" style="color: #e67e22; font-weight: bold;">0 cây</span>
+            <span id="workerToggle" style="float: right; font-size: 7px; color: #95a5a6;">▼</span>
+          </div>
+          <div id="workerDetails" style="font-size: 8px; line-height: 1.2; max-height: 40px; overflow-y: auto; display: block;"></div>
+        </div>
+
+        <button id="openReportBtn" type="button" onclick="openReportModal()" style="margin-top: 4px; padding: 2px 6px; font-size: 8px; background: #27ae60; color: white; border: none; border-radius: 2px; cursor: pointer;">📊 Xem báo cáo</button>
+        <button onclick="exportReport()" style="margin-top: 4px; margin-left:6px; padding: 2px 6px; font-size: 8px; background: #3498db; color: white; border: none; border-radius: 2px; cursor: pointer;">⬇️ Xuất Excel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let reportCharts = {};
+    function openReportModal(){
+      const modal = document.getElementById('reportModal');
+      modal.style.display = 'block';
+      const data = (typeof getFilteredData === 'function') ? getFilteredData() : (window.allTreeData || []);
+      const setText = (id, text)=>{ const el = document.getElementById(id); if (el) el.textContent = text; };
+      const agg = (getter) => data.reduce((m,r)=>{ const k=(getter(r)||'').toString(); if(!k) return m; m[k]=(m[k]||0)+1; return m;},{});
+      const byType = agg(r=>r.ten);
+      const byQuality = agg(r=>r.chatLuong||r.chat_luong);
+      const byDisease = agg(r=>r.tinhtrangbenh);
+      const byFarm = agg(r=>r.tennt);
+      const byLot = agg(r=>r.tenlo);
+      const byYear = data.reduce((m,r)=>{
+        const y = Number(r.nam_trong || (r.ngaytrong? String(r.ngaytrong).slice(0,4): ''));
+        if (!isNaN(y) && y>0) { m[y] = (m[y]||0)+1; }
+        return m;
+      }, {});
+      const makeBar = (canvasId, obj, label)=>{
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const labels = Object.keys(obj);
+        const values = Object.values(obj);
+        if (reportCharts[canvasId]) { reportCharts[canvasId].destroy(); }
+        reportCharts[canvasId] = new Chart(ctx, {
+          type: 'bar',
+          data: { labels, datasets:[{ label, data: values, backgroundColor:'#3498db' }] },
+          options: { responsive: true, plugins:{ 
+              legend:{ display:false }, 
+              tooltip:{ bodyFont:{ size:10 }, titleFont:{ size:10 } },
+              legendCallback: (chart)=> chart
+            }, 
+            scales:{ x:{ ticks:{ color:'#2c3e50', font:{ size:10 } } }, y:{ ticks:{ color:'#2c3e50', font:{ size:10 } }, beginAtZero:true } } }
+        });
+      };
+      const makePie = (canvasId, obj, label)=>{
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const labels = Object.keys(obj);
+        const values = Object.values(obj);
+        const colors = labels.map((_,i)=> `hsl(${(i*53)%360} 70% 55%)`);
+        if (reportCharts[canvasId]) { reportCharts[canvasId].destroy(); }
+        reportCharts[canvasId] = new Chart(ctx, {
+          type: 'pie',
+          data: { labels, datasets:[{ label, data: values, backgroundColor: colors }] },
+          options: { responsive: true, plugins:{ 
+              legend:{ position:'bottom', labels:{ 
+                font:{ size:10 }, 
+                generateLabels: (chart)=>{
+                  const ds = chart.data.datasets[0] || {data:[]};
+                  const total = ds.data.reduce((a,b)=>a+(Number(b)||0),0) || 0;
+                  return chart.data.labels.map((lbl, i)=>{
+                    const val = Number(ds.data[i]||0);
+                    const pct = total? ((val/total)*100).toFixed(1): '0.0';
+                    const meta = chart.getDatasetMeta(0);
+                    const color = (chart.data.datasets[0].backgroundColor||[])[i] || '#999';
+                    return {
+                      text: `${lbl}: ${val} (${pct}%)`,
+                      fillStyle: color,
+                      strokeStyle: color,
+                      hidden: meta && meta.data[i] ? meta.data[i].hidden : false,
+                      index: i
+                    };
+                  });
+                }
+              } }, 
+              tooltip:{ bodyFont:{ size:10 }, titleFont:{ size:10 } } 
+            }
+          }
+        });
+      };
+      const makeLine = (canvasId, obj, label)=>{
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const labels = Object.keys(obj).sort((a,b)=>Number(a)-Number(b));
+        const values = labels.map(k=> obj[k]);
+        if (reportCharts[canvasId]) { reportCharts[canvasId].destroy(); }
+        reportCharts[canvasId] = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets:[{ label, data: values, borderColor:'#e67e22', backgroundColor:'rgba(230,126,34,0.15)', tension:0.25, pointRadius:2 }] },
+          options: { responsive:true, plugins:{ legend:{ display:false }, tooltip:{ bodyFont:{ size:10 }, titleFont:{ size:10 } } }, scales:{ x:{ ticks:{ color:'#2c3e50', font:{ size:10 } } }, y:{ ticks:{ color:'#2c3e50', font:{ size:10 } }, beginAtZero:true } } }
+        });
+      };
+
+      // Chọn dạng biểu đồ phù hợp: loại/ql dùng cột nếu danh mục nhiều, chất lượng/bệnh dùng tròn
+      const manyCats = (obj)=> Object.keys(obj).length > 8;
+      (manyCats(byType)? makeBar: makePie)('chartTypes', byType, 'Số cây');
+      makePie('chartQuality', byQuality, 'Tỷ trọng');
+      makePie('chartDisease', byDisease, 'Tỷ trọng');
+      (manyCats(byFarm)? makeBar: makePie)('chartFarm', byFarm, 'Số cây');
+      (manyCats(byLot)? makeBar: makePie)('chartLot', byLot, 'Số cây');
+      if (Object.keys(byYear).length>0) { makeLine('chartYear', byYear, 'Số cây theo năm'); }
+
+      // Tạo bảng số liệu chi tiết dưới mỗi biểu đồ
+      const toTable = (obj, total)=>{
+        const rows = Object.entries(obj).sort((a,b)=>b[1]-a[1]);
+        const pct = (n)=> total? ((n/total)*100).toFixed(1): '0.0';
+        let html = '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+        html += '<tr><th style="text-align:left; border-bottom:1px solid #eee; padding:4px;">Tên</th><th style="text-align:right; border-bottom:1px solid #eee; padding:4px;">Số lượng</th><th style="text-align:right; border-bottom:1px solid #eee; padding:4px;">Tỷ lệ</th><th style="text-align:left; border-bottom:1px solid #eee; padding:4px;">Đơn vị</th></tr>';
+        rows.forEach(([k,v])=>{
+          html += `<tr><td style="padding:4px; text-align:left;">${k}</td><td style="padding:4px; text-align:right;">${v}</td><td style=\"padding:4px; text-align:right;\">${pct(v)}%</td><td style="padding:4px; text-align:left;">cây</td></tr>`;
+        });
+        html += '</table>';
+        return html;
+      };
+      const total = data.length || 0;
+      document.getElementById('tblType').innerHTML = toTable(byType, total);
+      document.getElementById('tblQuality').innerHTML = toTable(byQuality, total);
+      document.getElementById('tblDisease').innerHTML = toTable(byDisease, total);
+      document.getElementById('tblFarm').innerHTML = toTable(byFarm, total);
+      document.getElementById('tblLot').innerHTML = toTable(byLot, total);
+      if (document.getElementById('tblYear')) {
+        const rows = Object.entries(byYear).sort((a,b)=>Number(a[0])-Number(b[0]));
+        let html = '<table style="width:100%; border-collapse:collapse; font-size:12px;">';
+        html += '<tr><th style="text-align:left; border-bottom:1px solid #eee; padding:4px;">Năm</th><th style="text-align:right; border-bottom:1px solid #eee; padding:4px;">Số lượng</th><th style="text-align:left; border-bottom:1px solid #eee; padding:4px;">Đơn vị</th></tr>';
+        rows.forEach(([y,v])=>{ html += `<tr><td style="padding:4px; text-align:left;">${y}</td><td style="padding:4px; text-align:right;">${v}</td><td style="padding:4px; text-align:left;">cây</td></tr>`; });
+        html += '</table>';
+        document.getElementById('tblYear').innerHTML = html;
+      }
+
+      // Phân tích AI theo tiêu đề (chuyên gia nông nghiệp)
+      const top = (obj)=> Object.entries(obj).sort((a,b)=>b[1]-a[1])[0] || ['(N/A)',0];
+      const [tt,ttc]=top(byType); const [dq,dqc]=top(byQuality); const [db,dbc]=top(byDisease); const [nf,nfc]=top(byFarm);
+      const p=(n)=> total? ((n/total)*100).toFixed(1):'0.0';
+      setText('insType', `– Loại trội: ${tt} (${p(ttc)}%). Khuyến nghị ưu tiên giống/đầu tư.`);
+      setText('insQuality', `– Chất lượng trội: ${dq} (${p(dqc)}%). Chuẩn hóa quy trình nâng tỷ lệ.`);
+      setText('insDisease', `– Bệnh nổi bật: ${db} (${p(dbc)}%). Giám sát sớm, lập lịch xử lý.`);
+      setText('insFarm', `– Nông trường nhiều cây: ${nf} (${p(nfc)}%). Điều phối nhân lực/vật tư.`);
+      const [lotTop, lotCnt] = top(byLot);
+      if (document.getElementById('insLot')) setText('insLot', `– Lô nổi trội: ${lotTop} (${p(lotCnt)}%).`);
+      if (document.getElementById('insYear')) {
+        const yearKeys = Object.keys(byYear).map(Number).sort((a,b)=>a-b);
+        const yearSpan = yearKeys.length? `${yearKeys[0]}–${yearKeys[yearKeys.length-1]}` : 'N/A';
+        setText('insYear', `– Khoảng năm: ${yearSpan}.`);
+      }
+
+      // Tổng hợp gợi ý AI vào hộp insights
+      const insightsEl = document.getElementById('reportInsights');
+      if (insightsEl) {
+        const top2 = (obj)=> Object.entries(obj).sort((a,b)=>b[1]-a[1])[0] || ['(N/A)',0];
+        const [topType2, topTypeCnt2] = top2(byType);
+        const [topDisease2, topDisCnt2] = top2(byDisease);
+        const pct2 = (n)=> total? ((n/total)*100).toFixed(1): '0.0';
+        const years = Object.keys(byYear).map(Number).filter(n=>!isNaN(n));
+        const yearSpan = years.length? `${Math.min(...years)}–${Math.max(...years)}` : 'N/A';
+        insightsEl.innerHTML = `
+          <div>- Loại cây nổi trội: <b>${topType2}</b> (${topTypeCnt2} cây, ${pct2(topTypeCnt2)}%). Ưu tiên giống/chuỗi cung ứng.</div>
+          <div>- Bệnh phổ biến: <b>${topDisease2}</b> (${topDisCnt2} ca, ${pct2(topDisCnt2)}%). Lập lịch phòng trị sớm theo ngưỡng.</div>
+          <div>- Phân bố theo lô và nông trường có chênh lệch. Điều phối nhân lực/vật tư sang nơi mật độ cao.</div>
+          <div>- Xu hướng theo thời gian (${yearSpan}): ${years.length? 'theo dõi biến động số cây/ghi nhận' : 'chưa có cột năm/Ngày trồng'}.</div>
+          <div>- Gợi ý kỹ thuật: tối ưu mật độ, tưới/bón theo dữ liệu; thí điểm IoT ở lô rủi ro.</div>
+        `;
+      }
+    }
+    function closeReportModal(){
+      const modal = document.getElementById('reportModal');
+      modal.style.display = 'none';
+    }
+    // Bảo đảm nút hoạt động ngay cả khi thuộc tính inline bị chặn
+    document.addEventListener('DOMContentLoaded', function(){
+      const btn = document.getElementById('openReportBtn');
+      if (btn) btn.addEventListener('click', function(ev){ ev.preventDefault(); try { openReportModal(); } catch(err){ console.error(err); alert('Lỗi mở báo cáo: '+err.message); } });
+      const modal = document.getElementById('reportModal');
+      if (modal) { modal.addEventListener('click', (e)=>{ if (e.target===modal) closeReportModal(); }); }
+    });
+  </script>
+  <!-- Modal báo cáo với biểu đồ -->
+  <div id="reportModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:2002;">
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#fff; border-radius:10px; padding:14px; width:860px; max-width:96vw; max-height:90vh; overflow:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">📊 Báo cáo trực quan</h3>
+        <button onclick="closeReportModal()" style="background:#e74c3c; color:white; border:none; border-radius:1px; padding:2px 5px; cursor:pointer; transform: scaleX(0.3); transform-origin: right center;">Đóng</button>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start;">
+        <div id="reportLeftCol" style="display:flex; flex-direction:column; gap:10px; border-right:1px solid #e1e5ea; padding-right:10px;">
+          <div>
+            <h4 style="margin:6px 0; border-bottom:1px solid #e9ecef; padding-bottom:4px;">🌳 Loại cây <span id="insType" style="font-weight:600; color:#2c3e50; font-size:12px;"></span></h4>
+            <canvas id="chartTypes" height="12"></canvas>
+            <div style="height:1px; background:#e9ecef; margin:6px 0;"></div>
+          </div>
+          <div>
+            <h4 style="margin:6px 0; border-bottom:1px solid #e9ecef; padding-bottom:4px;">🌱 Chất lượng <span id="insQuality" style="font-weight:600; color:#2c3e50; font-size:12px;"></span></h4>
+            <canvas id="chartQuality" height="12"></canvas>
+            <div style="height:1px; background:#e9ecef; margin:6px 0;"></div>
+          </div>
+          <div>
+            <h4 style="margin:6px 0; border-bottom:1px solid #e9ecef; padding-bottom:4px;">🦠 Dịch bệnh <span id="insDisease" style="font-weight:600; color:#2c3e50; font-size:12px;"></span></h4>
+            <canvas id="chartDisease" height="12"></canvas>
+            <div style="height:1px; background:#e9ecef; margin:6px 0;"></div>
+          </div>
+          <div>
+            <h4 style="margin:6px 0; border-bottom:1px solid #e9ecef; padding-bottom:4px;">👥 Nông trường <span id="insFarm" style="font-weight:600; color:#2c3e50; font-size:12px;"></span></h4>
+            <canvas id="chartFarm" height="12"></canvas>
+            <div style="height:1px; background:#e9ecef; margin:6px 0;"></div>
+          </div>
+          <div>
+            <h4 style="margin:6px 0; border-bottom:1px solid #e9ecef; padding-bottom:4px;">📦 Theo Lô <span id="insLot" style="font-weight:600; color:#2c3e50; font-size:12px;"></span></h4>
+            <canvas id="chartLot" height="12"></canvas>
+            <div style="height:1px; background:#e9ecef; margin:6px 0;"></div>
+          </div>
+          <div>
+            <h4 style="margin:6px 0; border-bottom:1px solid #e9ecef; padding-bottom:4px;">📅 Theo thời gian <span id="insYear" style="font-weight:600; color:#2c3e50; font-size:12px;"></span></h4>
+            <canvas id="chartYear" height="12"></canvas>
+          </div>
+        </div>
+        <div id="reportRightCol" style="display:flex; flex-direction:column; gap:10px; border-left:1px solid #e1e5ea; padding-left:10px;">
+          <div style="background:#f8f9fa; border:1px solid #e9ecef; border-radius:8px; padding:8px;">
+            <h4 style="margin:4px 0;">🗂️ Khái quát dữ liệu</h4>
+            <div id="datasetOverview" style="font-size:12px; color:#2c3e50;"></div>
+          </div>
+          <div>
+            <h4 style="margin:6px 0;">Bảng số liệu</h4>
+            <div id="tblType" style="margin-bottom:8px; border-top:1px dashed #e1e5ea; padding-top:6px;"></div>
+            <div id="tblQuality" style="margin-bottom:8px; border-top:1px dashed #e1e5ea; padding-top:6px;"></div>
+            <div id="tblDisease" style="margin-bottom:8px; border-top:1px dashed #e1e5ea; padding-top:6px;"></div>
+            <div id="tblFarm" style="margin-bottom:8px; border-top:1px dashed #e1e5ea; padding-top:6px;"></div>
+            <div id="tblLot" style="margin-bottom:8px; border-top:1px dashed #e1e5ea; padding-top:6px;"></div>
+            <div id="tblYear" style="margin-bottom:8px; border-top:1px dashed #e1e5ea; padding-top:6px;"></div>
+          </div>
+          <div style="background:#f8f9fa; border:1px solid #e9ecef; border-radius:8px; padding:10px;">
+            <h4 style="margin:0 0 8px 0;">🤖 Gợi ý phân tích & giải pháp (AI)</h4>
+            <div id="reportInsights" style="font-size:13px; line-height:1.5; color:#2c3e50;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
+  
+  <!-- Panel bản đồ nhỏ nằm ngang -->
+  <div class="map-panel-horizontal" id="mapPanel">
+    <div class="map-panel-header" onmousedown="startDrag(event, 'mapPanel')">
+      <h4>🗺️</h4>
+      <div class="map-panel-controls">
+        <button class="minimize-btn" onclick="toggleMapPanel()" title="Thu gọn">−</button>
+        </div>
+    </div>
+    <div class="map-panel-content">
+      <div class="map-tool-horizontal">
+        <button class="map-tool-btn-small" onclick="zoomToAll()" title="Xem toàn bộ">🔎</button>
+        <button class="map-tool-btn-small" onclick="toggleClustering()" id="clusterBtn" title="Bật/Tắt clustering">📊</button>
+        <button class="map-tool-btn-small" onclick="startPolygonDrawing()" id="polygonBtn" title="Vẽ đa giác">
+          <span style="display:inline-block; width: 0; height: 0; border-bottom: 10px solid black; border-left: 6px solid transparent; border-right: 6px solid transparent; transform: scaleX(1.2);"></span>
+        </button>
+        <button class="map-tool-btn-small" onclick="startDistanceMeasure()" id="distanceBtn" title="Đo khoảng cách">📏</button>
+        <button class="map-tool-btn-small" onclick="countTreesInArea()" title="Đếm cây">🌳</button>
+        <button class="map-tool-btn-small" onclick="clearDrawings()" title="Xóa vẽ">🗑️</button>
+      </div>
+    </div>
+  </div>
+  
+  
+  
+  <div class="status-bar" id="statusBar">
+    Sẵn sàng | Tọa độ: -- | Zoom: -- | Cây: 0
+  </div>
+  
+  <div class="edit-modal" id="editModal">
+    <h3>✏️ Chỉnh sửa thông tin cây</h3>
+    <form id="editForm">
+      <label for="editId">ID:</label>
+      <input type="text" id="editId" readonly />
+      
+      <label for="editTen">Tên cây:</label>
+      <input type="text" id="editTen" />
+      
+      <label for="editMauCay">Màu cây (loại cây):</label>
+      <input type="text" id="editMauCay" />
+      
+      <label for="editNam">Năm trồng:</label>
+      <input type="number" id="editNam" min="1900" max="2030" />
+      
+      <label for="editNgayTrong">Ngày trồng (dd/mm/yyyy):</label>
+      <input type="text" id="editNgayTrong" placeholder="dd/mm/yyyy" />
+      
+      <label for="editChatLuong">Chất lượng:</label>
+      <input type="text" id="editChatLuong" />
+      
+      <label for="editMau">Màu sắc (chất lượng):</label>
+      <input type="text" id="editMau" />
+      
+      <label for="editTinhtrangbenh">Tình trạng bệnh:</label>
+      <input type="text" id="editTinhtrangbenh" />
+      
+      <label for="editTennt">Tên nông trường:</label>
+      <input type="text" id="editTennt" />
+      
+      <label for="editTengd">Tên giám đốc:</label>
+      <input type="text" id="editTengd" />
+      
+      <label for="editTendoi">Tên đội:</label>
+      <input type="text" id="editTendoi" />
+      
+      <label for="editTendt">Tên đội trưởng:</label>
+      <input type="text" id="editTendt" />
+      
+      <label for="editTenlo">Tên lô:</label>
+      <input type="text" id="editTenlo" />
+      
+      <label for="editTentt">Tên tổ trưởng:</label>
+      <input type="text" id="editTentt" />
+      
+      <label for="editCn">Tên công nhân:</label>
+      <input type="text" id="editCn" />
+      
+      <div class="button-group">
+        <button type="button" class="cancel-btn" onclick="closeEditModal()">Hủy</button>
+        <button type="button" class="save-btn" onclick="saveTreeEditModal()">Lưu</button>
+        <button type="button" class="export-btn" onclick="exportEditedData()">Xuất Excel</button>
+      </div>
+    </form>
+  </div>
+  
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
+
+  <script>
+    // Hệ tọa độ VN2000 múi 3°, kinh tuyến trục 108.5° (cho Gia Lai)
+    // Đây là hệ tọa độ chuẩn cho AutoCAD tại Việt Nam
+    proj4.defs("VN2000_GIA_LAI",
+      "+proj=tmerc +lat_0=0 +lon_0=108.5 +k=0.9999 +x_0=500000 +y_0=0 " +
+      "+ellps=WGS84 +towgs84=-191.904414,-39.303182,-111.450328,0.00928836,-0.01975479,0.00427372,1 " +
+      "+units=m +no_defs"
+    );
+    
+    // Thông tin hệ tọa độ VN2000 Gia Lai
+    console.log('Hệ tọa độ VN2000 Gia Lai - Kinh tuyến trục: 108.5°, Múi chiếu: 3°');
+    const VN2000 = proj4("VN2000_GIA_LAI");
+    const WGS84 = proj4("WGS84");
+
+    // Tạo bản đồ
+    const map = L.map('map', { zoomControl: false, maxZoom: 20, minZoom: 8 })
+      .setView([13.95, 108.0], 15);
+
+    const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      attribution: 'Google Hybrid', maxZoom: 20
+    });
+    
+    const googleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+      attribution: 'Google Satellite', maxZoom: 20
+    });
+
+    const baseMaps = {
+      "Hybrid": googleHybrid,
+      "Satellite": googleSatellite
+    };
+
+    googleHybrid.addTo(map);
+    L.control.layers(baseMaps).addTo(map);
+
+    let markers = [];
+    let markerGroup = L.featureGroup().addTo(map);
+    let markerClusterGroup = L.markerClusterGroup({
+      chunkedLoading: true,
+      maxClusterRadius: 50,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      disableClusteringAtZoom: 16 // Tắt clustering khi zoom >= 16
+    });
+    let allTreeData = [];
+    let editedTreesList = new Set(); // Danh sách ID các cây đã chỉnh sửa
+    let clusteringEnabled = true;
+
+    // Công cụ vẽ đa giác
+    const drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+    let currentDrawingMode = null;
+    let polygonHandler = null;
+    
+    // Công cụ đo khoảng cách
+    let distanceMode = false;
+    let distancePoints = [];
+    let distanceLines = [];
+    let distanceMarkers = [];
+    let distanceLayer = L.layerGroup().addTo(map);
+
+    // Event listeners
+    document.getElementById('fileInput').addEventListener('change', handleFile, false);
+    document.getElementById('statusFilter').addEventListener('change', filterMarkers);
+    document.getElementById('typeFilter').addEventListener('change', filterMarkers);
+    document.getElementById('yearFilter').addEventListener('input', filterMarkers);
+    document.getElementById('tenntFilter').addEventListener('change', filterMarkers);
+    document.getElementById('tendoiFilter').addEventListener('change', filterMarkers);
+    document.getElementById('tenloFilter').addEventListener('change', filterMarkers);
+    document.getElementById('tenttFilter').addEventListener('change', filterMarkers);
+    document.getElementById('cnFilter').addEventListener('change', filterMarkers);
+    document.getElementById('diseaseFilter').addEventListener('change', filterMarkers);
+    
+    // Event delegation cho popup buttons
+    document.addEventListener('click', function(e) {
+      if (e.target.matches('[data-action]')) {
+        const action = e.target.getAttribute('data-action');
+        const id = e.target.getAttribute('data-id');
+        
+        console.log('Popup button clicked:', action, id);
+        
+        switch(action) {
+          case 'edit':
+            switchToEditMode(id);
+            break;
+          case 'save':
+            saveTreeEdit(id);
+            break;
+          case 'cancel':
+            switchToViewMode(id);
+            break;
+          case 'close':
+            closePopup(id);
+            break;
+          case 'toggle':
+            togglePopupContent(id);
+            break;
+        }
+      }
+    });
+    // Tự động nạp URL Google Sheets đã lưu khi mở trang
+    (function autoLoadGoogleSheet(){
+      try {
+        const saved = localStorage.getItem('googleSheetUrl');
+        if (saved) {
+          const el = document.getElementById('googleSheetUrl');
+          if (el) el.value = saved;
+          // Trì hoãn một nhịp để map/UI sẵn sàng
+          setTimeout(()=>{ loadFromGoogleSheet(); }, 600);
+        }
+      } catch(err){ console.warn('AutoLoad GSheet skip:', err); }
+    })();
+    
+    // Tính bán kính marker theo mức zoom (nhỏ hơn khi zoom ra xa)
+    function getRadiusForZoom(zoom) {
+      // Theo yêu cầu: Z20=7, Z19=3, Z18=0.2, Z17..9=0.1
+      if (zoom >= 20) return 7.0;
+      if (zoom === 19) return 3.0;
+      if (zoom === 18) return 0.2;
+      if (zoom <= 17) return 0.1; // áp dụng cho 17 xuống 9
+      return 0.1;
+    }
+
+    function updateMarkerSizes() {
+      const currentZoom = map.getZoom();
+      const r = getRadiusForZoom(currentZoom);
+      markers.forEach(m => {
+        // giữ opacity hiện tại, chỉ cập nhật radius
+        m.setStyle({ radius: r });
+      });
+    }
+
+    // Event listener để cập nhật kích thước markers khi zoom
+    map.on('zoomend', updateMarkerSizes);
+
+    // Cập nhật status bar
+    map.on('mousemove', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const zoom = map.getZoom();
+      document.getElementById('statusBar').textContent = 
+        `Tọa độ: ${lat}, ${lng} | Zoom: ${zoom} | Cây: ${markers.length}`;
+    });
+    
+    // Event listener cho đo khoảng cách
+    map.on('click', function(e) {
+      if (distanceMode) {
+        addDistancePoint(e.latlng);
+      }
+    });
+
+    // ==== GOOGLE SHEETS LOADER ====
+    function saveGoogleSheetUrl(){
+      try {
+        const url = (document.getElementById('googleSheetUrl')?.value || '').trim();
+        if (!url) { alert('Vui lòng nhập URL Google Sheets'); return; }
+        localStorage.setItem('googleSheetUrl', url);
+        alert('Đã lưu URL Google Sheets. Trang sẽ tự tải dữ liệu khi mở.');
+      } catch(err){ console.error(err); alert('Lỗi lưu URL: '+err.message); }
+    }
+
+    function getParam(url, name){
+      try { const u = new URL(url); return u.searchParams.get(name) || ''; } catch { return ''; }
+    }
+
+    function buildGoogleCsvUrl(sheetUrl){
+      try {
+        // Nếu đã là CSV (publish to web hoặc gviz out:csv), trả về trực tiếp
+        if (sheetUrl.includes('tqx=out:csv') || sheetUrl.endsWith('.csv')) return sheetUrl;
+        const u = new URL(sheetUrl);
+        const parts = u.pathname.split('/');
+        const idIndex = parts.indexOf('d') + 1;
+        const docId = parts[idIndex] || '';
+        const gid = getParam(sheetUrl, 'gid') || '0';
+        if (!docId) return sheetUrl; // không nhận diện được => dùng nguyên bản
+        // Ưu tiên gviz CSV; nếu Publish to web được bật, đường dẫn /pub cũng hợp lệ
+        return `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&gid=${gid}`;
+      } catch {
+        return sheetUrl;
+      }
+    }
+
+    function buildOneDriveDirectUrl(raw){
+      // Chuẩn hóa các biến thể link OneDrive thành link tải trực tiếp
+      try {
+        const u = new URL(raw);
+        const host = u.host.toLowerCase();
+        // 1drv.ms short link → thêm download=1
+        if (host.includes('1drv.ms')) {
+          if (!u.searchParams.has('download')) u.searchParams.set('download', '1');
+          return u.toString();
+        }
+        // onedrive.live.com/view.aspx?resid=... → download?resid=...
+        if (host.includes('onedrive.live.com')) {
+          if (u.pathname.toLowerCase().includes('/view.aspx')) {
+            const resid = u.searchParams.get('resid');
+            const authkey = u.searchParams.get('authkey');
+            const downloadUrl = new URL('https://onedrive.live.com/download');
+            if (resid) downloadUrl.searchParams.set('resid', resid);
+            if (authkey) downloadUrl.searchParams.set('authkey', authkey);
+            return downloadUrl.toString();
+          }
+        }
+      } catch {}
+      return raw;
+    }
+
+    async function loadFromGoogleSheet(){
+      try {
+        const inputEl = document.getElementById('googleSheetUrl');
+        const inputUrl = (inputEl?.value || '').trim();
+        const savedUrl = (localStorage.getItem('googleSheetUrl') || '').trim();
+        const urlRaw = inputUrl || savedUrl;
+        if (!urlRaw) { alert('Chưa có URL Google Sheets'); return; }
+        // Hỗ trợ Google Sheets và OneDrive
+        const isOneDrive = /onedrive\.live\.com|1drv\.ms/i.test(urlRaw);
+        const url = isOneDrive ? buildOneDriveDirectUrl(urlRaw) : buildGoogleCsvUrl(urlRaw);
+        // Quyết định CSV hay XLSX theo đuôi/param
+        const isCsv = url.endsWith('.csv') || url.includes('tqx=out:csv') || /output=csv/i.test(url);
+        if (isCsv) {
+          let res;
+          const proxy = 'https://cors.isomorphic-git.org/';
+          try {
+            res = await fetch(url, { mode: 'cors' });
+            if (!res.ok) {
+              // thử lại qua proxy khi status không OK
+              res = await fetch(proxy + url, { mode: 'cors' });
+            }
+          } catch(fetchErr) {
+            // Thử proxy CORS nhẹ nếu trình duyệt chặn do Origin:null (file://)
+            res = await fetch(proxy + url, { mode: 'cors' });
+          }
+          if (!res.ok) throw new Error('Không tải được CSV: ' + res.status);
+          const text = await res.text();
+          // Parse CSV về mảng đối tượng theo header
+          const data = parseCSV(text);
+          if (!Array.isArray(data) || data.length === 0) { alert('CSV rỗng/không hợp lệ'); return; }
+          addTreesToMap(data);
+          if (inputEl && !inputEl.value) inputEl.value = urlRaw;
+          document.getElementById('statusBar').textContent = `Đã tải ${data.length} dòng từ ${isOneDrive ? 'OneDrive' : 'Google Sheets'} (CSV)`;
+          return;
+        }
+        // Thử tải dạng XLSX (export)
+        const xlsxUrl = isOneDrive ? url : (url.includes('/export') ? url : (urlRaw.includes('/export') ? urlRaw : `${urlRaw.replace(/\/?edit.*$/, '')}/export?format=xlsx`));
+        let r;
+        const proxy = 'https://cors.isomorphic-git.org/';
+        try {
+          r = await fetch(xlsxUrl, { mode: 'cors' });
+          if (!r.ok) {
+            r = await fetch(proxy + xlsxUrl, { mode: 'cors' });
+          }
+        } catch(fetchErr) {
+          r = await fetch(proxy + xlsxUrl, { mode: 'cors' });
+        }
+        if (!r.ok) throw new Error('Không tải được XLSX: ' + r.status);
+        const buf = await r.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const sheetName = wb.SheetNames[0];
+        const sheet = wb.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(sheet);
+        addTreesToMap(json);
+        if (inputEl && !inputEl.value) inputEl.value = urlRaw;
+        document.getElementById('statusBar').textContent = `Đã tải ${json.length} dòng từ ${isOneDrive ? 'OneDrive' : 'Google Sheets'} (XLSX)`;
+      } catch(err){
+        console.error(err);
+        alert('Lỗi tải dữ liệu: ' + err.message + '\nCách khắc phục:\n1) Bật chia sẻ công khai (Anyone with the link).\n2) Google: dùng CSV (/gviz ... out:csv) hoặc /export?format=xlsx.\n3) OneDrive: dùng link 1drv.ms với ?download=1 hoặc live.com/download?resid=...\n4) Mở trang qua http://localhost thay vì file://');
+      }
+    }
+
+    function handleFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try {
+          if (file.name.endsWith('.csv')) {
+            parseCSV(event.target.result);
+          } else {
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const json = XLSX.utils.sheet_to_json(sheet);
+            
+            addTreesToMap(json);
+          }
+        } catch (error) {
+          console.error('Lỗi đọc file: ' + error.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function parseCSV(csvText) {
+      const lines = csvText.split('\n');
+      const headers = lines[0].split(',').map(h => h.trim());
+      const data = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim()) {
+          const values = lines[i].split(',').map(v => v.trim());
+          const row = {};
+          headers.forEach((header, index) => {
+            row[header] = values[index] || '';
+          });
+          data.push(row);
+        }
+      }
+      
+      addTreesToMap(data);
+    }
+
+    function addTreesToMap(data) {
+      allTreeData = data;
+      clearMarkers();
+      
+      let tong = 0;
+      let chatLuongStats = {};
+      let loaiCayStats = {};
+      let colorStats = {};
+
+      data.forEach(row => {
+        // Các trường chính - ưu tiên cột 'id' từ Excel
+        const id = (row.id || row.ID || row.Id || '').toString().trim();
+        const ten = row.ten || ''; // Tên cây - trường chính
+        const namTrong = row.nam_trong || ''; // Năm trồng - trường chính
+        const ngayTrong = row.ngaytrong || ''; // Ngày trồng - trường chính
+        console.log('Ngày trồng từ Excel:', { ngayTrong, type: typeof ngayTrong, row: row.ngaytrong });
+        const chatLuong = row.chat_luong || ''; // Chất lượng - trường chính
+        const tinhtrangbenh = row.tinhtrangbenh || ''; // Tình trạng bệnh - trường chính
+        
+        // Các trường dữ liệu mới
+        const tennt = row.tennt || ''; // Tên nông trường
+        const tengd = row.tengd || ''; // Tên giám đốc nông trường
+        const tendoi = row.tendoi || ''; // Tên đội
+        const tendt = row.tendt || ''; // Tên đội trưởng
+        const tenlo = row.tenlo || ''; // Tên lô
+        const tentt = row.tentt || ''; // Tên tổ trưởng
+        const cn = row.cn || ''; // Công nhân
+        
+        // Các trường màu sắc
+        const mauCay = row.mau_cay || ''; // Màu sắc của tên cây
+        const mau = row.mau || ''; // Màu sắc của chất lượng
+        
+        const lat = parseFloat(row.lat);
+        const lon = parseFloat(row.lon);
+
+        if (isNaN(lat) || isNaN(lon)) return;
+
+        // Debug: Hiển thị thông tin ID và tọa độ
+        console.log(`Cây ID: "${id}" | Tọa độ VN2000 (AutoCAD) - X: ${lat}, Y: ${lon}`);
+        console.log(`Thông tin quản lý - Nông trường: "${tennt}", Giám đốc: "${tengd}"`);
+
+        // Xác định màu sắc marker - mặc định hiển thị màu của tên cây
+        let markerColor = 'green'; // mặc định
+        
+        // Ưu tiên 1: mau_cay (màu sắc của tên cây) - hiển thị khi không lọc
+        if (mauCay) {
+          markerColor = mauCay.toLowerCase();
+        } 
+        // Ưu tiên 2: mau (màu sắc của chất lượng) - hiển thị khi lọc theo chất lượng
+        else if (mau) {
+          markerColor = mau.toLowerCase();
+        } 
+        // Ưu tiên 3: chat_luong (chất lượng) - fallback
+        else if (chatLuong.toLowerCase().includes('tốt') || chatLuong.toLowerCase().includes('excellent')) {
+          markerColor = 'green';
+        } else if (chatLuong.toLowerCase().includes('trung bình') || chatLuong.toLowerCase().includes('good')) {
+          markerColor = 'orange';
+        } else if (chatLuong.toLowerCase().includes('xấu') || chatLuong.toLowerCase().includes('poor')) {
+          markerColor = 'red';
+        }
+
+        // Chuyển đổi tọa độ VN2000 (AutoCAD) -> WGS84 (Google Earth)
+        // Trong AutoCAD: lat = X, lon = Y
+        // Chuyển đổi: (X, Y) = (lat, lon) -> (lon, lat) cho proj4
+        const [lonWGS84, latWGS84] = proj4(VN2000, WGS84, [lat, lon]);
+        
+        // Debug: Hiển thị tọa độ sau chuyển đổi
+        console.log(`Cây ${id}: VN2000(X=${lat}, Y=${lon}) -> WGS84(${latWGS84.toFixed(6)}, ${lonWGS84.toFixed(6)})`);
+
+        // Tính toán kích thước marker dựa trên mức zoom
+        const currentZoom = map.getZoom();
+        const markerRadius = getRadiusForZoom(currentZoom);
+
+        const marker = L.circleMarker([latWGS84, lonWGS84], {
+          radius: markerRadius, color: markerColor, fillColor: markerColor,
+          fillOpacity: 0.8, weight: 2
+        }).bindPopup(createViewPopup(id, {
+          ten, namTrong, ngayTrong, chatLuong, tinhtrangbenh,
+          tennt, tengd, tendoi, tendt, tenlo, tentt, cn
+        }));
+
+        // Lưu dữ liệu cây vào marker
+        marker.treeData = { 
+          id, ten, namTrong, ngayTrong, chatLuong, tinhtrangbenh, mauCay, mau,
+          tennt, tengd, tendoi, tendt, tenlo, tentt, cn,
+          markerColor, lat: latWGS84, lon: lonWGS84 
+        };
+        
+        // Thêm marker vào markerGroup ngay lập tức
+        marker.addTo(markerGroup);
+        markers.push(marker);
+        
+        // Debug: Kiểm tra marker có tọa độ hợp lệ không
+        if (isNaN(latWGS84) || isNaN(lonWGS84)) {
+          console.warn(`Marker ${id} có tọa độ không hợp lệ: lat=${latWGS84}, lon=${lonWGS84}`);
+        } else {
+          console.log(`Đã thêm marker ${id} vào bản đồ tại tọa độ: ${latWGS84.toFixed(6)}, ${lonWGS84.toFixed(6)}`);
+        }
+
+        // Cập nhật thống kê
+        chatLuongStats[chatLuong] = (chatLuongStats[chatLuong] || 0) + 1;
+        loaiCayStats[ten] = (loaiCayStats[ten] || 0) + 1;
+        colorStats[markerColor] = (colorStats[markerColor] || 0) + 1;
+        tong++;
+      });
+
+      updateFilterOptions();
+      updateStats(tong, chatLuongStats, loaiCayStats, colorStats);
+      updateManagementStats(data);
+      updateLegend(colorStats);
+      updateDataStatsPanel(data);
+      
+      // Đã bỏ panel thống kê
+      
+      // Cập nhật markers và zoom sau khi tất cả dữ liệu đã được xử lý
+      updateMarkers();
+      // Cập nhật bảng thống kê theo bộ lọc ban đầu
+      updateFilterStatsPanel();
+      // Bỏ cập nhật bảng tổng hợp ban đầu
+      
+      if (markers.length > 0) {
+        console.log(`Đã tạo ${markers.length} markers, markerGroup có ${markerGroup.getLayers().length} layers`);
+        
+        // Zoom ngay lập tức vì markers đã được thêm trực tiếp vào markerGroup
+        if (markerGroup.getLayers().length > 0) {
+          const bounds = markerGroup.getBounds();
+          console.log('Bounds của markers:', bounds);
+          map.fitBounds(bounds.pad(0.1));
+          console.log('Đã zoom đến vị trí các cây');
+        } else {
+          console.warn('markerGroup không có layers mặc dù có markers');
+        }
+        
+        // Cập nhật status bar khi load xong dữ liệu
+        document.getElementById('statusBar').textContent = 
+          `Đã load ${markers.length} cây từ file Excel | Tọa độ: -- | Zoom: -- | Cây: ${markers.length}`;
+      } else {
+        console.warn('Không có markers được tạo');
+      }
+    }
+
+    function updateMarkers() {
+      if (clusteringEnabled) {
+        markerGroup.clearLayers();
+        markerClusterGroup.clearLayers();
+        markerClusterGroup.addLayers(markers);
+        map.addLayer(markerClusterGroup);
+        console.log(`updateMarkers với clustering: markers.length=${markers.length}`);
+      } else {
+        markerClusterGroup.clearLayers();
+      markerGroup.clearLayers();
+      markers.forEach(marker => markerGroup.addLayer(marker));
+        console.log(`updateMarkers không clustering: markers.length=${markers.length}`);
+      }
+    }
+
+    function updateMarkerSizes() {
+      const currentZoom = map.getZoom();
+      const newRadius = getRadiusForZoom(currentZoom);
+      
+      // Cập nhật kích thước cho tất cả markers
+      markers.forEach(marker => {
+        if (marker.setRadius) {
+          marker.setRadius(newRadius);
+        }
+      });
+      
+      console.log(`Đã cập nhật kích thước markers: zoom=${currentZoom}, radius=${newRadius}`);
+    }
+
+    function clearMarkers() {
+      markerGroup.clearLayers();
+      markerClusterGroup.clearLayers();
+      markers = [];
+    }
+
+    function updateFilterOptions() {
+      const statusSet = new Set();
+      const typeSet = new Set();
+      const yearSet = new Set();
+      const tenntSet = new Set();
+      const tengdSet = new Set();
+      const tendoiSet = new Set();
+      const tendtSet = new Set();
+      const tenloSet = new Set();
+      const tenttSet = new Set();
+      const cnSet = new Set();
+      const diseaseSet = new Set();
+      
+      // Debug: Hiển thị tất cả tên cột có sẵn trong dữ liệu
+      if (allTreeData.length > 0) {
+        console.log('Tất cả tên cột trong dữ liệu:', Object.keys(allTreeData[0]));
+        console.log('Dòng đầu tiên:', allTreeData[0]);
+      }
+      
+      allTreeData.forEach(row => {
+        const chatLuong = (row.chat_luong || '').trim();
+        const ten = (row.ten || '').trim();
+        const namTrong = row.nam_trong || '';
+        const tennt = (row.tennt || '').trim();
+        const tengd = (row.tengd || '').trim(); // Tên giám đốc nông trường
+        const tendoi = (row.tendoi || '').trim();
+        const tendt = (row.tendt || '').trim();
+        const tenlo = (row.tenlo || '').trim();
+        const tentt = (row.tentt || '').trim();
+        const cn = (row.cn || '').trim();
+        const tinhtrangbenh = (row.tinhtrangbenh || '').trim();
+        
+        if (chatLuong) statusSet.add(chatLuong);
+        if (ten) typeSet.add(ten);
+        if (namTrong && !isNaN(parseInt(namTrong))) {
+          yearSet.add(parseInt(namTrong));
+        }
+        if (tennt) {
+          tenntSet.add(tennt);
+          console.log('Thêm nông trường:', tennt);
+        }
+        if (tengd) {
+          tengdSet.add(tengd);
+          console.log('Thêm giám đốc:', tengd);
+        }
+        if (tendoi) tendoiSet.add(tendoi);
+        if (tendt) tendtSet.add(tendt);
+        if (tenlo) tenloSet.add(tenlo);
+        if (tentt) tenttSet.add(tentt);
+        if (cn) cnSet.add(cn);
+        if (tinhtrangbenh) diseaseSet.add(tinhtrangbenh);
+      });
+
+      // Cập nhật bộ lọc chất lượng
+      const statusFilter = document.getElementById('statusFilter');
+      if (statusFilter) {
+        statusFilter.innerHTML = '<option value="">Tất cả chất lượng</option>';
+        Array.from(statusSet).sort().forEach(chatLuong => {
+          statusFilter.innerHTML += `<option value="${chatLuong}">${chatLuong}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc loại cây
+      const typeFilter = document.getElementById('typeFilter');
+      if (typeFilter) {
+        typeFilter.innerHTML = '<option value="">Tất cả loại cây</option>';
+        Array.from(typeSet).sort().forEach(type => {
+          typeFilter.innerHTML += `<option value="${type}">${type}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc năm trồng
+      const yearFilter = document.getElementById('yearFilter');
+      if (yearFilter) {
+        yearFilter.innerHTML = '<option value="">Tất cả năm trồng</option>';
+        Array.from(yearSet).sort((a, b) => b - a).forEach(year => {
+          yearFilter.innerHTML += `<option value="${year}">${year}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc nông trường
+      const tenntFilter = document.getElementById('tenntFilter');
+      if (tenntFilter) {
+        tenntFilter.innerHTML = '<option value="">Tất cả nông trường</option>';
+        console.log('Nông trường tìm thấy:', Array.from(tenntSet));
+        console.log('Số lượng nông trường:', tenntSet.size);
+        console.log('Dữ liệu nông trường từ allTreeData:', allTreeData.map(row => ({ tennt: row.tennt, id: row.id })));
+        
+        if (tenntSet.size === 0) {
+          console.warn('Không tìm thấy dữ liệu nông trường! Kiểm tra tên cột trong file Excel.');
+          // Thử các tên cột khác có thể có
+          const possibleTenntColumns = ['tennt', 'TENNT', 'TenNT', 'ten_nt', 'TEN_NT', 'nong_truong', 'NONG_TRUONG'];
+          possibleTenntColumns.forEach(col => {
+            const found = allTreeData.some(row => row[col]);
+            if (found) {
+              console.log(`Tìm thấy cột nông trường với tên: ${col}`);
+              allTreeData.forEach(row => {
+                const value = (row[col] || '').trim();
+                if (value) tenntSet.add(value);
+              });
+            }
+          });
+        }
+        
+        Array.from(tenntSet).sort().forEach(tennt => {
+          tenntFilter.innerHTML += `<option value="${tennt}">${tennt}</option>`;
+        });
+      }
+
+
+
+      // Cập nhật bộ lọc đội
+      const tendoiFilter = document.getElementById('tendoiFilter');
+      if (tendoiFilter) {
+        tendoiFilter.innerHTML = '<option value="">Tất cả đội</option>';
+        Array.from(tendoiSet).sort().forEach(tendoi => {
+          tendoiFilter.innerHTML += `<option value="${tendoi}">${tendoi}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc đội trưởng
+      const tendtFilter = document.getElementById('tendtFilter');
+      if (tendtFilter) {
+        tendtFilter.innerHTML = '<option value="">Tất cả đội trưởng</option>';
+        Array.from(tendtSet).sort().forEach(tendt => {
+          tendtFilter.innerHTML += `<option value="${tendt}">${tendt}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc lô
+      const tenloFilter = document.getElementById('tenloFilter');
+      if (tenloFilter) {
+        tenloFilter.innerHTML = '<option value="">Tất cả lô</option>';
+        Array.from(tenloSet).sort().forEach(tenlo => {
+          tenloFilter.innerHTML += `<option value="${tenlo}">${tenlo}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc tổ trưởng
+      const tenttFilter = document.getElementById('tenttFilter');
+      if (tenttFilter) {
+        tenttFilter.innerHTML = '<option value="">Tất cả tổ trưởng</option>';
+        Array.from(tenttSet).sort().forEach(tentt => {
+          tenttFilter.innerHTML += `<option value="${tentt}">${tentt}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc công nhân
+      const cnFilter = document.getElementById('cnFilter');
+      if (cnFilter) {
+        cnFilter.innerHTML = '<option value="">Tất cả công nhân</option>';
+        Array.from(cnSet).sort().forEach(cn => {
+          cnFilter.innerHTML += `<option value="${cn}">${cn}</option>`;
+        });
+      }
+
+      // Cập nhật bộ lọc tình trạng bệnh
+      const diseaseFilter = document.getElementById('diseaseFilter');
+      if (diseaseFilter) {
+        diseaseFilter.innerHTML = '<option value="">Tất cả tình trạng bệnh</option>';
+        Array.from(diseaseSet).sort().forEach(disease => {
+          diseaseFilter.innerHTML += `<option value="${disease}">${disease}</option>`;
+        });
+      }
+    }
+
+    // Hàm format ngày tháng từ Excel
+    function formatDateFromExcel(dateValue) {
+      if (!dateValue) return '';
+      
+      console.log('formatDateFromExcel input:', { dateValue, type: typeof dateValue });
+      
+      // Nếu là số (serial date của Excel)
+      if (typeof dateValue === 'number') {
+        // Excel serial date bắt đầu từ 1900-01-01
+        const excelEpoch = new Date(1900, 0, 1);
+        const date = new Date(excelEpoch.getTime() + (dateValue - 2) * 24 * 60 * 60 * 1000);
+        const result = formatDate(date);
+        console.log('Excel serial date converted:', { dateValue, result });
+        return result;
+      }
+      
+      // Nếu là string, thử parse
+      if (typeof dateValue === 'string') {
+        // Thử parse các định dạng khác nhau
+        let date;
+        
+        // Thử định dạng dd/mm/yyyy
+        if (dateValue.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+          const parts = dateValue.split('/');
+          date = new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+        // Thử định dạng yyyy-mm-dd
+        else if (dateValue.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+          date = new Date(dateValue);
+        }
+        // Thử parse thông thường
+        else {
+          date = new Date(dateValue);
+        }
+        
+        if (!isNaN(date.getTime())) {
+          const result = formatDate(date);
+          console.log('String date converted:', { dateValue, result });
+          return result;
+        }
+        // Nếu không parse được, trả về nguyên gốc
+        console.log('String date not parsed, returning original:', dateValue);
+        return dateValue;
+      }
+      
+      // Nếu là Date object
+      if (dateValue instanceof Date) {
+        const result = formatDate(dateValue);
+        console.log('Date object converted:', { dateValue, result });
+        return result;
+      }
+      
+      console.log('Unknown type, returning toString:', dateValue);
+      return dateValue.toString();
+    }
+    
+    // Hàm format ngày thành dd/mm/yyyy
+    function formatDate(date) {
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+    
+    // Hàm format ngày cho input type="date" (yyyy-mm-dd)
+    function formatDateForInput(dateValue) {
+      if (!dateValue) return '';
+      
+      let date;
+      if (typeof dateValue === 'number') {
+        // Excel serial date
+        const excelEpoch = new Date(1900, 0, 1);
+        date = new Date(excelEpoch.getTime() + (dateValue - 2) * 24 * 60 * 60 * 1000);
+      } else if (typeof dateValue === 'string') {
+        // Thử parse các định dạng khác nhau
+        if (dateValue.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+          const parts = dateValue.split('/');
+          date = new Date(parts[2], parts[1] - 1, parts[0]);
+        } else if (dateValue.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+          date = new Date(dateValue);
+        } else {
+          date = new Date(dateValue);
+        }
+      } else if (dateValue instanceof Date) {
+        date = dateValue;
+      } else {
+        return '';
+      }
+      
+      if (!date || isNaN(date.getTime())) return '';
+      
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    // Hàm tìm kiếm ID riêng biệt
+    function searchById() {
+      const searchTerm = document.getElementById('searchBox').value.toLowerCase().trim();
+      
+      if (!searchTerm) {
+        // Nếu không có từ khóa tìm kiếm, hiển thị tất cả markers
+        markers.forEach(marker => {
+          marker.setStyle({ 
+            radius: 10, 
+            opacity: 1, 
+            fillOpacity: 0.8, 
+            weight: 2,
+            color: marker.treeData.markerColor,
+            fillColor: marker.treeData.markerColor
+          });
+        });
+        return;
+      }
+      
+      let foundMarkers = [];
+      
+      markers.forEach(marker => {
+        const data = marker.treeData;
+        // Tìm kiếm trong cột ID (hỗ trợ cả id và ID)
+        const markerId = (data.id || '').toString().toLowerCase();
+        const isMatch = markerId.includes(searchTerm);
+        
+        if (isMatch) {
+          // Làm nổi bật cây tìm thấy
+          marker.setStyle({ 
+            radius: Math.max(getRadiusForZoom(map.getZoom()) + 6, 10), 
+            opacity: 1, 
+            fillOpacity: 1, 
+            weight: 4,
+            color: '#ff0000',
+            fillColor: '#ff0000'
+          });
+          foundMarkers.push(marker);
+        } else {
+          // Làm mờ các cây khác (70% mờ)
+          marker.setStyle({ 
+            radius: Math.max(1.5, getRadiusForZoom(map.getZoom()) - 2), 
+            opacity: 0.3, 
+            fillOpacity: 0.3, 
+            weight: 1,
+            color: data.markerColor,
+            fillColor: data.markerColor
+          });
+        }
+      });
+      
+      // Nếu tìm thấy cây, zoom đến vị trí và mở popup
+      if (foundMarkers.length > 0) {
+        const firstMarker = foundMarkers[0];
+        const data = firstMarker.treeData;
+        map.setView([data.lat, data.lon], 18);
+        firstMarker.openPopup();
+        
+        // Cập nhật status bar
+        if (foundMarkers.length === 1) {
+          document.getElementById('statusBar').textContent = 
+            `Tìm thấy: ${data.id} | Tọa độ: ${data.lat.toFixed(6)}, ${data.lon.toFixed(6)} | Zoom: 18`;
+        } else {
+          document.getElementById('statusBar').textContent = 
+            `Tìm thấy ${foundMarkers.length} cây có ID chứa "${searchTerm}" | Tọa độ: ${data.lat.toFixed(6)}, ${data.lon.toFixed(6)} | Zoom: 18`;
+        }
+      } else {
+        // Cập nhật status bar khi không tìm thấy
+        document.getElementById('statusBar').textContent = 
+          `Không tìm thấy ID: "${searchTerm}" | Tọa độ: -- | Zoom: --`;
+      }
+      
+      // Cập nhật thống kê dữ liệu dựa trên kết quả tìm kiếm
+      if (searchTerm) {
+        const searchResults = foundMarkers.map(marker => marker.treeData);
+        console.log('Cập nhật thống kê từ tìm kiếm:', searchResults.length, 'items');
+        updateDataStatsPanel(searchResults);
+      } else {
+        // Khi không có tìm kiếm, hiển thị dữ liệu đã lọc
+        const filteredData = getFilteredData();
+        console.log('Cập nhật thống kê từ dữ liệu đã lọc:', filteredData.length, 'items');
+        updateDataStatsPanel(filteredData);
+      }
+      
+      // Không mở bảng chi tiết
+    }
+    
+    // Hàm xóa tìm kiếm
+    function clearSearch() {
+      document.getElementById('searchBox').value = '';
+      searchById(); // Gọi lại để hiển thị tất cả markers
+      updateFilterStatsPanel();
+      // Không cần gọi updateDataStatsPanel ở đây vì searchById() đã gọi rồi
+    }
+
+    function filterMarkers() {
+      const statusFilter = document.getElementById('statusFilter').value;
+      const typeFilter = document.getElementById('typeFilter').value;
+      const yearFilter = document.getElementById('yearFilter').value;
+      const tenntFilter = document.getElementById('tenntFilter').value;
+      const tendoiFilter = document.getElementById('tendoiFilter').value;
+      const tendtFilter = document.getElementById('tendtFilter').value;
+      const tenloFilter = document.getElementById('tenloFilter').value;
+      const tenttFilter = document.getElementById('tenttFilter').value;
+      const cnFilter = document.getElementById('cnFilter').value;
+      const diseaseFilter = document.getElementById('diseaseFilter').value;
+
+      console.log('Bộ lọc hiện tại:', {
+        tennt: tenntFilter,
+        tendoi: tendoiFilter,
+        tendt: tendtFilter,
+        tenlo: tenloFilter,
+        tentt: tenttFilter,
+        cn: cnFilter
+      });
+
+      // Kiểm tra xem có đang lọc theo chất lượng không
+      const isFilteringByStatus = statusFilter !== '';
+      let visibleCount = 0;
+
+      const visibleItems = [];
+      markers.forEach(marker => {
+        const data = marker.treeData;
+        const matchesStatus = !statusFilter || data.chatLuong === statusFilter;
+        const matchesType = !typeFilter || data.ten === typeFilter;
+        const matchesYear = !yearFilter || (data.namTrong && parseInt(data.namTrong) === parseInt(yearFilter));
+        const matchesTennt = !tenntFilter || data.tennt === tenntFilter;
+        
+        // Debug cho tennt filter
+        if (tenntFilter) {
+          console.log(`Kiểm tra tennt: filter="${tenntFilter}", data.tennt="${data.tennt}", match=${matchesTennt}`);
+        }
+        const matchesTendoi = !tendoiFilter || data.tendoi === tendoiFilter;
+        const matchesTendt = !tendtFilter || data.tendt === tendtFilter;
+        const matchesTenlo = !tenloFilter || data.tenlo === tenloFilter;
+        const matchesTentt = !tenttFilter || data.tentt === tenttFilter;
+        const matchesCn = !cnFilter || data.cn === cnFilter;
+        const matchesDisease = !diseaseFilter || data.tinhtrangbenh === diseaseFilter;
+        
+        const isVisible = matchesStatus && matchesType && matchesYear && matchesTennt && matchesTendoi && matchesTendt && matchesTenlo && matchesTentt && matchesCn && matchesDisease;
+        
+        if (isVisible) visibleCount++;
+        if (isVisible) visibleItems.push(data);
+        
+        // Xác định màu sắc hiển thị
+        let displayColor = data.markerColor; // Mặc định là màu của tên cây
+        
+        // Nếu đang lọc theo chất lượng, hiển thị màu của chất lượng
+        if (isFilteringByStatus && data.mau) {
+          displayColor = data.mau.toLowerCase();
+        }
+        
+        if (isVisible) {
+          marker.setStyle({ 
+            radius: getRadiusForZoom(map.getZoom()), 
+            opacity: 1, 
+            fillOpacity: 0.8, 
+            weight: 2,
+            color: displayColor,
+            fillColor: displayColor
+          });
+        } else {
+          marker.setStyle({ 
+            radius: Math.max(0.1, getRadiusForZoom(map.getZoom()) * 0.6), 
+            opacity: 0.3, 
+            fillOpacity: 0.2, 
+            weight: 1,
+            color: displayColor,
+            fillColor: displayColor
+          });
+        }
+      });
+
+      // Cập nhật thống kê với dữ liệu đã lọc
+      updateFilteredStats(visibleCount);
+      
+      // Cập nhật bảng chú giải theo màu sắc hiển thị
+      updateLegendAfterFilter(isFilteringByStatus);
+      
+      // Cập nhật bảng thống kê theo bộ lọc
+      updateFilterStatsPanel();
+
+    }
+
+    function updateFilteredStats(visibleCount) {
+      // Cập nhật thống kê với dữ liệu đã lọc
+      // Đồng bộ với bảng chi tiết: nếu opacity chưa đặt thì coi như hiển thị
+      const visibleMarkers = markers.filter(marker =>
+        marker.options.opacity === undefined || marker.options.opacity > 0.5
+      );
+      
+      let chatLuongStats = {};
+      let loaiCayStats = {};
+      let tenntStats = {};
+      let tengdStats = {};
+      let tendoiStats = {};
+      let tendtStats = {};
+      let tenloStats = {};
+      let tenttStats = {};
+      let cnStats = {};
+      
+      visibleMarkers.forEach(marker => {
+        const data = marker.treeData;
+        
+        // Thống kê chất lượng
+        if (data.chatLuong) {
+          chatLuongStats[data.chatLuong] = (chatLuongStats[data.chatLuong] || 0) + 1;
+        }
+        
+        // Thống kê loại cây
+        if (data.ten) {
+          loaiCayStats[data.ten] = (loaiCayStats[data.ten] || 0) + 1;
+        }
+        
+        // Thống kê nông trường
+        if (data.tennt) {
+          tenntStats[data.tennt] = (tenntStats[data.tennt] || 0) + 1;
+        }
+        
+        // Thống kê giám đốc
+        if (data.tengd) {
+          tengdStats[data.tengd] = (tengdStats[data.tengd] || 0) + 1;
+        }
+        
+        // Thống kê đội
+        if (data.tendoi) {
+          tendoiStats[data.tendoi] = (tendoiStats[data.tendoi] || 0) + 1;
+        }
+        
+        // Thống kê đội trưởng
+        if (data.tendt) {
+          tendtStats[data.tendt] = (tendtStats[data.tendt] || 0) + 1;
+        }
+        
+        // Thống kê lô
+        if (data.tenlo) {
+          tenloStats[data.tenlo] = (tenloStats[data.tenlo] || 0) + 1;
+        }
+        
+        // Thống kê thửa
+        if (data.tentt) {
+          tenttStats[data.tentt] = (tenttStats[data.tentt] || 0) + 1;
+        }
+        
+        // Thống kê công nhân
+        if (data.cn) {
+          cnStats[data.cn] = (cnStats[data.cn] || 0) + 1;
+        }
+      });
+      
+      // Cập nhật hiển thị thống kê
+      console.log('Cập nhật thống kê lọc:', { 
+        visibleCount, 
+        visibleMarkers: visibleMarkers.length,
+        tenntStats, 
+        tengdStats,
+        chatLuongStats,
+        loaiCayStats
+      });
+      updateStats(visibleCount, chatLuongStats, loaiCayStats, {});
+      updateManagementStatsFiltered(tenntStats, tengdStats, tendoiStats, tendtStats, tenloStats, tenttStats, cnStats, visibleCount);
+      
+      // Sử dụng hàm getFilteredData để đảm bảo tính nhất quán
+      const filteredData = getFilteredData();
+      console.log('Gọi updateDataStatsPanel với filteredData:', filteredData.length, 'items');
+      updateDataStatsPanel(filteredData);
+    }
+
+    function updateManagementStatsFiltered(tenntStats, tengdStats, tendoiStats, tendtStats, tenloStats, tenttStats, cnStats, totalCount) {
+      let html = '';
+
+      // Hiển thị thông tin lọc hiện tại
+      const statusFilter = document.getElementById('statusFilter').value;
+      const typeFilter = document.getElementById('typeFilter').value;
+      const yearFilter = document.getElementById('yearFilter').value;
+      const tenntFilter = document.getElementById('tenntFilter').value;
+      const tendoiFilter = document.getElementById('tendoiFilter').value;
+      const tendtFilter = document.getElementById('tendtFilter').value;
+      const tenloFilter = document.getElementById('tenloFilter').value;
+      const tenttFilter = document.getElementById('tenttFilter').value;
+      const cnFilter = document.getElementById('cnFilter').value;
+
+      console.log('updateManagementStatsFiltered được gọi với:', { 
+        totalCount, 
+        tenntStats, 
+        tengdStats, 
+        filters: { statusFilter, typeFilter, yearFilter, tenntFilter, tendoiFilter, tendtFilter, tenloFilter, tenttFilter, cnFilter }
+      });
+
+      // Kiểm tra xem có đang lọc không
+      const hasFilter = statusFilter || typeFilter || yearFilter || tenntFilter || tendoiFilter || tendtFilter || tenloFilter || tenttFilter || cnFilter;
+      
+      console.log('Kiểm tra hasFilter:', { 
+        hasFilter, 
+        statusFilter, 
+        typeFilter, 
+        yearFilter, 
+        tenntFilter, 
+        tendoiFilter, 
+        tendtFilter, 
+        tenloFilter, 
+        tenttFilter, 
+        cnFilter 
+      });
+      
+      if (hasFilter) {
+        html += `<div style="margin-bottom: 8px; padding: 8px; background: #e8f4fd; border: 2px solid #bee5eb; border-radius: 6px; font-size: 10px;">
+          <strong style="color: #0c5460; font-size: 11px;">🔍 Bộ lọc hiện tại (${totalCount} cây):</strong><br/>`;
+        
+        if (statusFilter) html += `• Chất lượng: <span style="color: #27ae60; font-weight: bold;">${statusFilter}</span><br/>`;
+        if (typeFilter) html += `• Loại cây: <span style="color: #27ae60; font-weight: bold;">${typeFilter}</span><br/>`;
+        if (yearFilter) html += `• Năm: <span style="color: #27ae60; font-weight: bold;">${yearFilter}</span><br/>`;
+        if (tenntFilter) html += `• Nông trường: <span style="color: #27ae60; font-weight: bold;">${tenntFilter}</span><br/>`;
+        if (tendoiFilter) html += `• Đội: <span style="color: #27ae60; font-weight: bold;">${tendoiFilter}</span><br/>`;
+        if (tendtFilter) html += `• Đội trưởng: <span style="color: #27ae60; font-weight: bold;">${tendtFilter}</span><br/>`;
+        if (tenloFilter) html += `• Lô: <span style="color: #27ae60; font-weight: bold;">${tenloFilter}</span><br/>`;
+        if (tenttFilter) html += `• Tổ trưởng: <span style="color: #27ae60; font-weight: bold;">${tenttFilter}</span><br/>`;
+        if (cnFilter) html += `• Công nhân: <span style="color: #27ae60; font-weight: bold;">${cnFilter}</span><br/>`;
+        
+        html += `</div>`;
+        
+        // Đã bỏ panel thống kê khi có lọc
+      } else {
+        html += `<div style="margin-bottom: 8px; padding: 6px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; font-size: 9px; color: #6c757d;">
+          📊 Hiển thị tất cả dữ liệu (${totalCount} cây)
+        </div>`;
+      }
+
+
+      // Thống kê nông trường
+      if (Object.keys(tenntStats).length > 0) {
+        html += `<div style="margin-bottom: 6px; font-size: 9px;"><strong>🏭 Nông trường (${totalCount} cây):</strong></div>`;
+        Object.entries(tenntStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tennt, count]) => {
+            const pct = ((count/totalCount)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tennt}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê giám đốc
+      if (Object.keys(tengdStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👨‍💼 Giám đốc:</strong></div>`;
+        Object.entries(tengdStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tengd, count]) => {
+            const pct = ((count/totalCount)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tengd}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê đội
+      if (Object.keys(tendoiStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👥 Đội:</strong></div>`;
+        Object.entries(tendoiStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tendoi, count]) => {
+            const pct = ((count/totalCount)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tendoi}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê đội trưởng
+      if (Object.keys(tendtStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👨‍💼 Đội trưởng:</strong></div>`;
+        Object.entries(tendtStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tendt, count]) => {
+            const pct = ((count/totalCount)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tendt}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê lô
+      if (Object.keys(tenloStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>📦 Lô:</strong></div>`;
+        Object.entries(tenloStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tenlo, count]) => {
+            const pct = ((count/totalCount)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tenlo}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê tổ trưởng
+      if (Object.keys(tenttStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👨‍💼 Tổ trưởng:</strong></div>`;
+        Object.entries(tenttStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tentt, count]) => {
+            const pct = ((count/totalCount)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tentt}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê công nhân
+      if (Object.keys(cnStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👷 Công nhân:</strong></div>`;
+        Object.entries(cnStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([cn, count]) => {
+            const pct = ((count/totalCount)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${cn}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      if (html === '') {
+        html = '<div style="font-size: 8px; color: #7f8c8d;">Không có thông tin quản lý</div>';
+      }
+
+      console.log('HTML được tạo ra:', html);
+      const mgmtEl = document.getElementById('managementStatsContent');
+      if (mgmtEl) { 
+        mgmtEl.innerHTML = html; 
+      } else {
+        console.warn('Element managementStatsContent không tồn tại');
+      }
+    }
+
+    function updateLegendAfterFilter(isFilteringByStatus) {
+      // legend removed
+    }
+
+    function clearFilters() {
+      document.getElementById('statusFilter').value = '';
+      document.getElementById('typeFilter').value = '';
+      document.getElementById('yearFilter').value = '';
+      document.getElementById('tenntFilter').value = '';
+      document.getElementById('tendoiFilter').value = '';
+      document.getElementById('tendtFilter').value = '';
+      document.getElementById('tenloFilter').value = '';
+      document.getElementById('tenttFilter').value = '';
+      document.getElementById('cnFilter').value = '';
+      document.getElementById('diseaseFilter').value = '';
+      filterMarkers();
+      
+      // Cập nhật lại thống kê ban đầu
+      let tong = 0;
+      let chatLuongStats = {};
+      let loaiCayStats = {};
+      let colorStats = {};
+      
+      markers.forEach(marker => {
+        const data = marker.treeData;
+        chatLuongStats[data.chatLuong] = (chatLuongStats[data.chatLuong] || 0) + 1;
+        loaiCayStats[data.ten] = (loaiCayStats[data.ten] || 0) + 1;
+        colorStats[data.markerColor] = (colorStats[data.markerColor] || 0) + 1;
+        tong++;
+      });
+      
+      updateStats(tong, chatLuongStats, loaiCayStats, colorStats);
+      
+      // Tính toán thống kê quản lý từ tất cả dữ liệu
+      let tenntStats = {};
+      let tengdStats = {};
+      let tendoiStats = {};
+      let tendtStats = {};
+      let tenloStats = {};
+      let tenttStats = {};
+      let cnStats = {};
+      
+      allTreeData.forEach(row => {
+        const tennt = (row.tennt || '').trim();
+        const tengd = (row.tengd || '').trim();
+        const tendoi = (row.tendoi || '').trim();
+        const tendt = (row.tendt || '').trim();
+        const tenlo = (row.tenlo || '').trim();
+        const tentt = (row.tentt || '').trim();
+        const cn = (row.cn || '').trim();
+
+        if (tennt) tenntStats[tennt] = (tenntStats[tennt] || 0) + 1;
+        if (tengd) tengdStats[tengd] = (tengdStats[tengd] || 0) + 1;
+        if (tendoi) tendoiStats[tendoi] = (tendoiStats[tendoi] || 0) + 1;
+        if (tendt) tendtStats[tendt] = (tendtStats[tendt] || 0) + 1;
+        if (tenlo) tenloStats[tenlo] = (tenloStats[tenlo] || 0) + 1;
+        if (tentt) tenttStats[tentt] = (tenttStats[tentt] || 0) + 1;
+        if (cn) cnStats[cn] = (cnStats[cn] || 0) + 1;
+      });
+      
+      updateManagementStatsFiltered(tenntStats, tengdStats, tendoiStats, tendtStats, tenloStats, tenttStats, cnStats, tong);
+      
+      // Cập nhật bảng thống kê dữ liệu từ tất cả markers (sau khi xóa lọc)
+      const allMarkersData = markers.map(marker => marker.treeData);
+      console.log('Cập nhật thống kê sau khi xóa lọc:', allMarkersData.length, 'items');
+      updateDataStatsPanel(allMarkersData);
+      
+      // Đã bỏ panel thống kê khi xóa lọc
+      
+      // Cập nhật bảng chú giải sau khi xóa lọc
+      updateLegendAfterFilter(false);
+      
+      // Bỏ cập nhật bảng tổng hợp
+    }
+
+    function updateStats(tong, chatLuongStats, loaiCayStats, colorStats) {
+      let html = `<div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">🌳 Tổng số cây: ${tong}</div>`;
+
+      html += `<div style="margin-bottom: 8px;"><strong>📌 Chất lượng:</strong></div>`;
+      for (let k in chatLuongStats) {
+        const pct = ((chatLuongStats[k]/tong)*100).toFixed(1);
+        html += `<div style="margin-left: 10px; font-size: 12px;">• ${k}: ${chatLuongStats[k]} (${pct}%)</div>`;
+      }
+
+      html += `<div style="margin: 8px 0;"><strong>🌱 Loại cây:</strong></div>`;
+      for (let k in loaiCayStats) {
+        const pct = ((loaiCayStats[k]/tong)*100).toFixed(1);
+        html += `<div style="margin-left: 10px; font-size: 12px;">• ${k}: ${loaiCayStats[k]} (${pct}%)</div>`;
+      }
+
+      const statsEl = document.getElementById('statsContent');
+      if (statsEl) { 
+        statsEl.innerHTML = html; 
+      } else {
+        console.warn('Element statsContent không tồn tại');
+      }
+    }
+
+    function updateManagementStats(data) {
+      const tenntStats = {};
+      const tengdStats = {};
+      const tendoiStats = {};
+      const tendtStats = {};
+      const tenloStats = {};
+      const tenttStats = {};
+      const cnStats = {};
+
+      data.forEach(row => {
+        const tennt = (row.tennt || '').trim();
+        const tengd = (row.tengd || '').trim();
+        const tendoi = (row.tendoi || '').trim();
+        const tendt = (row.tendt || '').trim();
+        const tenlo = (row.tenlo || '').trim();
+        const tentt = (row.tentt || '').trim();
+        const cn = (row.cn || '').trim();
+
+        if (tennt) tenntStats[tennt] = (tenntStats[tennt] || 0) + 1;
+        if (tengd) tengdStats[tengd] = (tengdStats[tengd] || 0) + 1;
+        if (tendoi) tendoiStats[tendoi] = (tendoiStats[tendoi] || 0) + 1;
+        if (tendt) tendtStats[tendt] = (tendtStats[tendt] || 0) + 1;
+        if (tenlo) tenloStats[tenlo] = (tenloStats[tenlo] || 0) + 1;
+        if (tentt) tenttStats[tentt] = (tenttStats[tentt] || 0) + 1;
+        if (cn) cnStats[cn] = (cnStats[cn] || 0) + 1;
+      });
+
+      let html = '';
+
+      // Thống kê nông trường
+      if (Object.keys(tenntStats).length > 0) {
+        html += `<div style="margin-bottom: 6px; font-size: 9px;"><strong>🏭 Nông trường:</strong></div>`;
+        Object.entries(tenntStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tennt, count]) => {
+            const pct = ((count/data.length)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tennt}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê giám đốc
+      if (Object.keys(tengdStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👨‍💼 Giám đốc:</strong></div>`;
+        Object.entries(tengdStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tengd, count]) => {
+            const pct = ((count/data.length)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tengd}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+
+      // Thống kê đội
+      if (Object.keys(tendoiStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👥 Đội:</strong></div>`;
+        Object.entries(tendoiStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tendoi, count]) => {
+            const pct = ((count/data.length)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tendoi}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê lô
+      if (Object.keys(tenloStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>📦 Lô:</strong></div>`;
+        Object.entries(tenloStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tenlo, count]) => {
+            const pct = ((count/data.length)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tenlo}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê tổ trưởng
+      if (Object.keys(tenttStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👨‍💼 Tổ trưởng:</strong></div>`;
+        Object.entries(tenttStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([tentt, count]) => {
+            const pct = ((count/data.length)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${tentt}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      // Thống kê công nhân
+      if (Object.keys(cnStats).length > 0) {
+        html += `<div style="margin: 6px 0; font-size: 9px;"><strong>👷 Công nhân:</strong></div>`;
+        Object.entries(cnStats)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .forEach(([cn, count]) => {
+            const pct = ((count/data.length)*100).toFixed(1);
+            html += `<div style="margin-left: 8px; font-size: 8px;">• ${cn}: ${count} (${pct}%)</div>`;
+          });
+      }
+
+      if (html === '') {
+        html = '<div style="font-size: 8px; color: #7f8c8d;">Không có thông tin quản lý</div>';
+      }
+
+      const mgmtEl2 = document.getElementById('managementStatsContent');
+      if (mgmtEl2) { 
+        mgmtEl2.innerHTML = html; 
+      } else {
+        console.warn('Element managementStatsContent không tồn tại');
+      }
+    }
+
+    function updateDataStatsPanel(data) {
+      console.log('updateDataStatsPanel được gọi với data:', data);
+      if (!data || data.length === 0) {
+        const totalTreesEl = document.getElementById('totalTrees');
+        const editedTreesEl = document.getElementById('editedTrees');
+        const goodQualityEl = document.getElementById('goodQuality');
+        const mediumQualityEl = document.getElementById('mediumQuality');
+        const poorQualityEl = document.getElementById('poorQuality');
+        const commonTypeEl = document.getElementById('commonType');
+        
+        if (totalTreesEl) totalTreesEl.textContent = '0';
+        if (editedTreesEl) editedTreesEl.textContent = '0';
+        if (goodQualityEl) goodQualityEl.textContent = '0';
+        if (mediumQualityEl) mediumQualityEl.textContent = '0';
+        if (poorQualityEl) poorQualityEl.textContent = '0';
+        if (commonTypeEl) commonTypeEl.textContent = '-';
+        return;
+      }
+
+      // Đếm tổng số cây
+      const totalTrees = data.length;
+      
+      // Đếm số cây đã chỉnh sửa từ dữ liệu hiện tại
+      let editedTrees = 0;
+      data.forEach((row, index) => {
+        // Xử lý cả hai cấu trúc: row.id (từ Excel) và row.id (từ marker.treeData)
+        const rowId = (row.id || row.ID || row.Id || '').toString().trim();
+        if (editedTreesList.has(rowId)) {
+          editedTrees++;
+        }
+        
+        // Debug: Log một vài item để kiểm tra ID
+        if (index < 3) {
+          console.log(`Edited check ${index}:`, {
+            rowId: rowId,
+            inEditedList: editedTreesList.has(rowId),
+            editedTreesListSize: editedTreesList.size
+          });
+        }
+      });
+      
+      // Thống kê chất lượng
+      const qualityStats = {};
+      const typeStats = {};
+      
+      data.forEach((row, index) => {
+        // Xử lý dữ liệu từ marker.treeData (có cấu trúc khác với Excel)
+        const chatLuong = (row.chatLuong || row.chat_luong || '').toString().toLowerCase();
+        const ten = (row.ten || '').toString().trim();
+        
+        // Debug: Log một vài item đầu tiên để kiểm tra
+        if (index < 3) {
+          console.log(`Item ${index}:`, {
+            id: row.id,
+            ten: ten,
+            chatLuong: chatLuong,
+            originalChatLuong: row.chatLuong || row.chat_luong
+          });
+        }
+        
+        // Phân loại chất lượng
+        if (chatLuong.includes('tốt') || chatLuong.includes('excellent')) {
+          qualityStats.tot = (qualityStats.tot || 0) + 1;
+        } else if (chatLuong.includes('trung bình') || chatLuong.includes('good') || chatLuong.includes('khá')) {
+          qualityStats.trungBinh = (qualityStats.trungBinh || 0) + 1;
+        } else if (chatLuong.includes('xấu') || chatLuong.includes('poor') || chatLuong.includes('kém')) {
+          qualityStats.kem = (qualityStats.kem || 0) + 1;
+        }
+        
+        // Thống kê loại cây
+        if (ten) {
+          typeStats[ten] = (typeStats[ten] || 0) + 1;
+        }
+      });
+      
+      // Thống kê dịch bệnh và năm trồng, quản lý
+      const diseaseStats = {};
+      let diseased = 0, healthy = 0, unknownDisease = 0;
+      const yearStats = {};
+      const farmStats = {}, teamStats = {}, lotStats = {}, workerStats = {};
+
+      data.forEach(row => {
+        const diseaseRaw = (row.tinhtrangbenh || row.disease || '').toString().trim();
+        const diseaseNorm = diseaseRaw.toLowerCase();
+        const isUnknown = diseaseNorm === '' || diseaseNorm === '-' || diseaseNorm === 'n/a' || diseaseNorm === 'na' || diseaseNorm === 'null';
+        const isHealthy =
+          diseaseNorm.includes('khỏe') ||
+          diseaseNorm.includes('khoe') ||
+          diseaseNorm.includes('healthy') ||
+          diseaseNorm.includes('không bệnh') ||
+          diseaseNorm.includes('khong benh') ||
+          diseaseNorm.includes('không có bệnh') ||
+          diseaseNorm.includes('khong co benh') ||
+          diseaseNorm.includes('không bị bệnh') ||
+          diseaseNorm.includes('khong bi benh');
+
+        if (isUnknown) {
+          unknownDisease++;
+        } else if (isHealthy) {
+          healthy++;
+        } else {
+          diseased++;
+          diseaseStats[diseaseRaw] = (diseaseStats[diseaseRaw] || 0) + 1;
+        }
+
+        const year = (row.namTrong || row.year || '').toString().trim();
+        if (year) {
+          yearStats[year] = (yearStats[year] || 0) + 1;
+        }
+
+        const farm = (row.tennt || '').toString().trim();
+        const team = (row.tendoi || '').toString().trim();
+        const lot = (row.tenlo || '').toString().trim();
+        const worker = (row.cn || '').toString().trim();
+        if (farm) farmStats[farm] = (farmStats[farm] || 0) + 1;
+        if (team) teamStats[team] = (teamStats[team] || 0) + 1;
+        if (lot) lotStats[lot] = (lotStats[lot] || 0) + 1;
+        if (worker) workerStats[worker] = (workerStats[worker] || 0) + 1;
+      });
+
+      // Tìm loại cây phổ biến nhất
+      let commonType = '-';
+      if (Object.keys(typeStats).length > 0) {
+        const sortedTypes = Object.entries(typeStats).sort(([,a], [,b]) => b - a);
+        commonType = sortedTypes[0][0];
+      }
+      
+      // Cập nhật giao diện
+      console.log('Cập nhật thống kê:', {
+        totalTrees,
+        editedTrees,
+        qualityStats,
+        typeStats,
+        commonType,
+        dataLength: data.length
+      });
+      
+      // Kiểm tra xem các element có tồn tại không
+      const totalTreesEl = document.getElementById('totalTrees');
+      const editedTreesEl = document.getElementById('editedTrees');
+      const goodQualityEl = document.getElementById('goodQuality');
+      const mediumQualityEl = document.getElementById('mediumQuality');
+      const poorQualityEl = document.getElementById('poorQuality');
+      const commonTypeEl = document.getElementById('commonType');
+      const totalQualityTreesEl = document.getElementById('totalQualityTrees');
+      const goodQualityPercentEl = document.getElementById('goodQualityPercent');
+      const mediumQualityPercentEl = document.getElementById('mediumQualityPercent');
+      const poorQualityPercentEl = document.getElementById('poorQualityPercent');
+      
+      if (totalTreesEl) totalTreesEl.textContent = totalTrees;
+      if (editedTreesEl) editedTreesEl.textContent = editedTrees;
+      const goodCnt = qualityStats.tot || 0;
+      const medCnt = qualityStats.trungBinh || 0;
+      const poorCnt = qualityStats.kem || 0;
+      const totalQl = goodCnt + medCnt + poorCnt;
+      if (goodQualityEl) goodQualityEl.textContent = `${goodCnt} cây`;
+      if (mediumQualityEl) mediumQualityEl.textContent = `${medCnt} cây`;
+      if (poorQualityEl) poorQualityEl.textContent = `${poorCnt} cây`;
+      if (totalQualityTreesEl) totalQualityTreesEl.textContent = `${totalQl} cây`;
+      // Cập nhật tỷ lệ, bảo đảm không NaN khi không có dữ liệu
+      const pct = (n, d) => (d > 0 ? ((n / d) * 100).toFixed(1) : '0.0');
+      if (goodQualityPercentEl) goodQualityPercentEl.textContent = `${pct(goodCnt, totalQl)}%`;
+      if (mediumQualityPercentEl) mediumQualityPercentEl.textContent = `${pct(medCnt, totalQl)}%`;
+      if (poorQualityPercentEl) poorQualityPercentEl.textContent = `${pct(poorCnt, totalQl)}%`;
+      if (commonTypeEl) commonTypeEl.textContent = commonType;
+      
+      // Cập nhật "🌳 Theo chủng loại" (thống kê theo trường ten)
+      const treeTypesDetailEl = document.getElementById('treeTypesDetail');
+      if (treeTypesDetailEl) {
+        const total = totalTrees || 0;
+        const typesSortedAZ = Object.entries(typeStats).sort((a,b) => a[0].localeCompare(b[0]));
+        const totalDistinct = typesSortedAZ.length;
+        const rows = typesSortedAZ.map(([name, count]) => {
+          const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+          return `<div>• ${name}: ${count} cây (${pct}%)</div>`;
+        });
+        treeTypesDetailEl.innerHTML = `<div style="font-weight:600;">Tổng loại: ${totalDistinct}</div>` + rows.join('');
+      }
+      
+      // Cập nhật phần Dịch bệnh
+      const diseasedEl = document.getElementById('diseasedTrees');
+      const healthyEl = document.getElementById('healthyTrees');
+      const unknownDiseaseEl = document.getElementById('unknownDisease');
+      const commonDiseaseEl = document.getElementById('commonDisease');
+      const diseaseDetailsEl = document.getElementById('diseaseDetails');
+      if (diseasedEl) diseasedEl.textContent = `${diseased} cây`;
+      if (healthyEl) healthyEl.textContent = `${healthy} cây`;
+      if (unknownDiseaseEl) unknownDiseaseEl.textContent = `${unknownDisease} cây`;
+      if (commonDiseaseEl) {
+        const diseaseSorted = Object.entries(diseaseStats).sort(([,a],[,b]) => b - a);
+        commonDiseaseEl.textContent = diseaseSorted.length ? diseaseSorted[0][0] : '-';
+      }
+      if (diseaseDetailsEl) {
+        const total = diseased; // chỉ cộng tổng cây bệnh
+        const diseaseSortedAZ = Object.entries(diseaseStats).sort((a,b) => a[0].localeCompare(b[0]));
+        const rows = diseaseSortedAZ.map(([name, count]) => {
+          const p = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+          return `<div>• ${name}: ${count} cây (${p}%)</div>`;
+        }).join('');
+        diseaseDetailsEl.innerHTML = rows; // bỏ dòng "Tổng: ... cây" trong nội dung
+        const diseaseHeaderTotal = document.getElementById('diseaseHeaderTotal');
+        const diseaseTypesHeaderTotal = document.getElementById('diseaseTypesHeaderTotal');
+        if (diseaseHeaderTotal) diseaseHeaderTotal.textContent = `${diseased} cây`;
+        if (diseaseTypesHeaderTotal) diseaseTypesHeaderTotal.textContent = `${diseased} cây`;
+      }
+
+      // Cập nhật phần Năm trồng
+      const yearDetailsEl = document.getElementById('yearDetails');
+      if (yearDetailsEl) {
+        const total = totalTrees || 0;
+        const yearSorted = Object.entries(yearStats).sort((a,b) => parseInt(a[0]) - parseInt(b[0]));
+        const rows = yearSorted.map(([y, c]) => {
+          const p = total > 0 ? ((c / total) * 100).toFixed(1) : '0.0';
+          return `<div>• ${y}: ${c} cây (${p}%)</div>`;
+        }).join('');
+        yearDetailsEl.innerHTML = rows; // bỏ dòng Tổng trong nội dung
+        const yearHeaderTotal = document.getElementById('yearHeaderTotal');
+        if (yearHeaderTotal) yearHeaderTotal.textContent = `${total} cây`;
+      }
+
+      // Cập nhật phần Quản lý tổng
+      const totalFarmsEl = document.getElementById('totalFarms');
+      const totalTeamsEl = document.getElementById('totalTeams');
+      const totalLotsEl = document.getElementById('totalLots');
+      const totalWorkersEl = document.getElementById('totalWorkers');
+      if (totalFarmsEl) totalFarmsEl.textContent = Object.keys(farmStats).length;
+      if (totalTeamsEl) totalTeamsEl.textContent = Object.keys(teamStats).length;
+      if (totalLotsEl) totalLotsEl.textContent = Object.keys(lotStats).length;
+      if (totalWorkersEl) totalWorkersEl.textContent = Object.keys(workerStats).length;
+
+      // Tổng số cây cho từng mục quản lý
+      const totalFarmTreesElement = document.getElementById('totalFarmTrees');
+      const totalTeamTreesElement = document.getElementById('totalTeamTrees');
+      const totalLotTreesElement = document.getElementById('totalLotTrees');
+      const totalWorkerTreesElement = document.getElementById('totalWorkerTrees');
+      const sumValues = obj => Object.values(obj).reduce((s, c) => s + c, 0);
+      if (totalFarmTreesElement) totalFarmTreesElement.textContent = `${sumValues(farmStats)} cây`;
+      if (totalTeamTreesElement) totalTeamTreesElement.textContent = `${sumValues(teamStats)} cây`;
+      if (totalLotTreesElement) totalLotTreesElement.textContent = `${sumValues(lotStats)} cây`;
+      if (totalWorkerTreesElement) totalWorkerTreesElement.textContent = `${sumValues(workerStats)} cây`;
+
+      // Chi tiết theo quản lý
+      const farmDetailsEl = document.getElementById('farmDetails');
+      const teamDetailsEl = document.getElementById('teamDetails');
+      const lotDetailsEl = document.getElementById('lotDetails');
+      const workerDetailsEl = document.getElementById('workerDetails');
+      if (farmDetailsEl) {
+        const total = totalTrees || 0;
+        const sortedAZ = Object.entries(farmStats).sort((a,b) => a[0].localeCompare(b[0]));
+        farmDetailsEl.innerHTML = sortedAZ.map(([name, count]) => {
+          const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+          return `<div>• ${name}: ${count} cây (${pct}%)</div>`;
+        }).join('');
+      }
+      if (teamDetailsEl) {
+        const total = totalTrees || 0;
+        const sortedAZ = Object.entries(teamStats).sort((a,b) => a[0].localeCompare(b[0]));
+        teamDetailsEl.innerHTML = sortedAZ.map(([name, count]) => {
+          const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+          return `<div>• ${name}: ${count} cây (${pct}%)</div>`;
+        }).join('');
+      }
+      if (lotDetailsEl) {
+        const total = totalTrees || 0;
+        const sortedAZ = Object.entries(lotStats).sort((a,b) => a[0].localeCompare(b[0]));
+        lotDetailsEl.innerHTML = sortedAZ.map(([name, count]) => {
+          const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+          return `<div>• ${name}: ${count} cây (${pct}%)</div>`;
+        }).join('');
+      }
+      if (workerDetailsEl) {
+        const total = totalTrees || 0;
+        const sortedAZ = Object.entries(workerStats).sort((a,b) => a[0].localeCompare(b[0]));
+        workerDetailsEl.innerHTML = sortedAZ.map(([name, count]) => {
+          const pct = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0';
+          return `<div>• ${name}: ${count} cây (${pct}%)</div>`;
+        }).join('');
+      }
+
+      console.log('Đã cập nhật thống kê thành công');
+    }
+
+    function updateLegend(colorStats) {
+      // legend removed
+    }
+
+    // Hàm lấy dữ liệu đã lọc chính xác
+    function getFilteredData() {
+      const statusFilter = document.getElementById('statusFilter').value;
+      const typeFilter = document.getElementById('typeFilter').value;
+      const yearFilter = document.getElementById('yearFilter').value;
+      const tenntFilter = document.getElementById('tenntFilter').value;
+      const tendoiFilter = document.getElementById('tendoiFilter').value;
+      const tendtFilter = document.getElementById('tendtFilter').value;
+      const tenloFilter = document.getElementById('tenloFilter').value;
+      const tenttFilter = document.getElementById('tenttFilter').value;
+      const cnFilter = document.getElementById('cnFilter').value;
+      const diseaseFilter = document.getElementById('diseaseFilter').value;
+
+      const filteredData = [];
+      markers.forEach(marker => {
+        const data = marker.treeData;
+        const matchesStatus = !statusFilter || data.chatLuong === statusFilter;
+        const matchesType = !typeFilter || data.ten === typeFilter;
+        const matchesYear = !yearFilter || (data.namTrong && parseInt(data.namTrong) === parseInt(yearFilter));
+        const matchesTennt = !tenntFilter || data.tennt === tenntFilter;
+        const matchesTendoi = !tendoiFilter || data.tendoi === tendoiFilter;
+        const matchesTendt = !tendtFilter || data.tendt === tendtFilter;
+        const matchesTenlo = !tenloFilter || data.tenlo === tenloFilter;
+        const matchesTentt = !tenttFilter || data.tentt === tenttFilter;
+        const matchesCn = !cnFilter || data.cn === cnFilter;
+        const matchesDisease = !diseaseFilter || data.tinhtrangbenh === diseaseFilter;
+        
+        const isVisible = matchesStatus && matchesType && matchesYear && matchesTennt && matchesTendoi && matchesTendt && matchesTenlo && matchesTentt && matchesCn && matchesDisease;
+        
+        if (isVisible) {
+          filteredData.push(data);
+        }
+      });
+      
+      return filteredData;
+    }
+
+    // Hàm debug để kiểm tra dữ liệu thống kê
+    function debugStats() {
+      console.log('=== DEBUG STATS ===');
+      console.log('Tổng số markers:', markers.length);
+      console.log('Tổng số allTreeData:', allTreeData.length);
+      console.log('Số cây đã chỉnh sửa:', editedTreesList.size);
+      console.log('Danh sách cây đã chỉnh sửa:', Array.from(editedTreesList));
+      
+      // Sử dụng hàm getFilteredData để lấy dữ liệu chính xác
+      const filteredData = getFilteredData();
+      console.log('Dữ liệu đã lọc:', filteredData.length, 'items');
+      if (filteredData.length > 0) {
+        console.log('Item đầu tiên:', filteredData[0]);
+      }
+      
+      // Gọi lại updateDataStatsPanel với dữ liệu đã lọc
+      updateDataStatsPanel(filteredData);
+    }
+
+    function toggleSummaryPanel() {
+      const panel = document.getElementById('summaryPanel');
+      const content = document.getElementById('summaryPanelContent');
+      const btn = panel.querySelector('.minimize-btn');
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        btn.textContent = '−';
+        btn.title = 'Thu gọn';
+      } else {
+        content.style.display = 'none';
+        btn.textContent = '+';
+        btn.title = 'Mở rộng';
+      }
+    }
+    function zoomToAll() {
+      if (markers.length > 0) {
+        if (clusteringEnabled && markerClusterGroup.getLayers().length > 0) {
+          map.fitBounds(markerClusterGroup.getBounds().pad(0.1));
+          console.log('Zoom to all markers (clustering):', markerClusterGroup.getBounds());
+        } else if (markerGroup.getLayers().length > 0) {
+        map.fitBounds(markerGroup.getBounds().pad(0.1));
+          console.log('Zoom to all markers (no clustering):', markerGroup.getBounds());
+        } else {
+          console.warn('Không có markers để zoom');
+        }
+      } else {
+        console.warn('Không có markers để zoom');
+      }
+    }
+
+
+
+    function exportData() {
+      if (allTreeData.length === 0) {
+        alert('Không có dữ liệu để xuất!');
+        return;
+      }
+      
+      const ws = XLSX.utils.json_to_sheet(allTreeData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'CayTrong');
+      XLSX.writeFile(wb, 'cay_trong_export.xlsx');
+    }
+
+    function exportEditedData() {
+      if (allTreeData.length === 0) {
+        alert('Không có dữ liệu để xuất!');
+        return;
+      }
+      
+      const ws = XLSX.utils.json_to_sheet(allTreeData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'CayTrong_Edited');
+      XLSX.writeFile(wb, 'cay_trong_da_chinh_sua.xlsx');
+      alert('Đã xuất dữ liệu đã chỉnh sửa thành công!');
+    }
+
+    // ===== CẤU TRÚC POPUP MỚI =====
+    
+    // Hàm tạo popup xem thông tin (chế độ xem)
+    function createViewPopup(id, data) {
+      return `
+        <div class="tree-popup" id="popup-${id}">
+          <div class="popup-header ${data.saved ? 'success' : ''} expanded" data-action="toggle" data-id="${id}">
+            <h4>🆔 ID: ${id} ${data.saved ? '<span class="saved-indicator">✓ Đã lưu</span>' : ''}</h4>
+          </div>
+          
+          <div class="popup-content">
+            <div class="info-grid">
+              <div class="info-group">
+                <label>Tên cây:</label>
+                <div class="info-value">${data.ten || 'N/A'}</div>
+              </div>
+              
+              <div class="info-group">
+                <label>Năm trồng:</label>
+                <div class="info-value">${data.namTrong || 'N/A'}</div>
+              </div>
+              
+              <div class="info-group">
+                <label>Ngày trồng:</label>
+                <div class="info-value">${data.ngayTrong ? formatDateFromExcel(data.ngayTrong) : 'N/A'}</div>
+              </div>
+              
+              <div class="info-group">
+                <label>Chất lượng:</label>
+                <div class="info-value quality-${(data.chatLuong || '').toLowerCase().replace(' ', '-') || 'unknown'}">${data.chatLuong || 'Chưa xác định'}</div>
+              </div>
+            </div>
+            
+            <div class="info-group">
+              <label>Tình trạng bệnh:</label>
+              <div class="info-value">${data.tinhtrangbenh || 'Không có'}</div>
+            </div>
+            
+            <div class="management-section">
+              <h5>📋 Thông tin quản lý:</h5>
+              <div class="management-grid">
+                <div class="info-group">
+                  <label>Nông trường:</label>
+                  <div class="info-value">${data.tennt || 'N/A'}</div>
+                </div>
+                <div class="info-group">
+                  <label>Giám đốc:</label>
+                  <div class="info-value">${data.tengd || 'N/A'}</div>
+                </div>
+                <div class="info-group">
+                  <label>Đội:</label>
+                  <div class="info-value">${data.tendoi || 'N/A'}</div>
+                </div>
+                <div class="info-group">
+                  <label>Đội trưởng:</label>
+                  <div class="info-value">${data.tendt || 'N/A'}</div>
+                </div>
+                <div class="info-group">
+                  <label>Lô:</label>
+                  <div class="info-value">${data.tenlo || 'N/A'}</div>
+                </div>
+                <div class="info-group">
+                  <label>Tổ trưởng:</label>
+                  <div class="info-value">${data.tentt || 'N/A'}</div>
+                </div>
+                <div class="info-group full-width">
+                  <label>Công nhân:</label>
+                  <div class="info-value">${data.cn || 'N/A'}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="popup-actions">
+            <button class="btn-edit" data-action="edit" data-id="${id}">✏️ Chỉnh sửa</button>
+            <button class="btn-cancel" data-action="close" data-id="${id}">❌ Đóng</button>
+          </div>
+        </div>
+      `;
+    }
+    
+    // Hàm tạo popup chỉnh sửa
+    function createEditPopup(id, data) {
+      return `
+        <div class="tree-popup" id="popup-${id}">
+          <div class="popup-header edit-mode expanded" data-action="toggle" data-id="${id}">
+            <h4>🆔 ID: ${id} - Chỉnh sửa</h4>
+          </div>
+          
+          <div class="popup-content">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Tên cây:</label>
+                <input type="text" id="edit-ten-${id}" value="${data.ten || ''}" />
+              </div>
+              
+              <div class="form-group">
+                <label>Năm trồng:</label>
+                <input type="number" id="edit-nam-${id}" value="${data.namTrong || ''}" />
+              </div>
+              
+              <div class="form-group">
+                <label>Ngày trồng:</label>
+                <input type="date" id="edit-ngay-${id}" value="${formatDateForInput(data.ngayTrong)}" />
+              </div>
+              
+              <div class="form-group">
+                <label>Chất lượng:</label>
+                <select id="edit-chatluong-${id}">
+                  <option value="Tốt" ${data.chatLuong === 'Tốt' ? 'selected' : ''}>Tốt</option>
+                  <option value="Trung bình" ${data.chatLuong === 'Trung bình' ? 'selected' : ''}>Trung bình</option>
+                  <option value="Kém" ${data.chatLuong === 'Kém' ? 'selected' : ''}>Kém</option>
+                  <option value="Chưa xác định" ${!data.chatLuong || data.chatLuong === 'Chưa xác định' ? 'selected' : ''}>Chưa xác định</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>Tình trạng bệnh:</label>
+              <input type="text" id="edit-benh-${id}" value="${data.tinhtrangbenh || ''}" placeholder="Nhập tình trạng bệnh..." />
+            </div>
+            
+            <div class="management-section">
+              <h5>📋 Thông tin quản lý:</h5>
+              <div class="management-grid">
+                <div class="form-group">
+                  <label>Nông trường:</label>
+                  <input type="text" id="edit-tennt-${id}" value="${data.tennt || ''}" />
+                </div>
+                <div class="form-group">
+                  <label>Giám đốc:</label>
+                  <input type="text" id="edit-tengd-${id}" value="${data.tengd || ''}" />
+                </div>
+                <div class="form-group">
+                  <label>Đội:</label>
+                  <input type="text" id="edit-tendoi-${id}" value="${data.tendoi || ''}" />
+                </div>
+                <div class="form-group">
+                  <label>Đội trưởng:</label>
+                  <input type="text" id="edit-tendt-${id}" value="${data.tendt || ''}" />
+                </div>
+                <div class="form-group">
+                  <label>Lô:</label>
+                  <input type="text" id="edit-tenlo-${id}" value="${data.tenlo || ''}" />
+                </div>
+                <div class="form-group">
+                  <label>Tổ trưởng:</label>
+                  <input type="text" id="edit-tentt-${id}" value="${data.tentt || ''}" />
+                </div>
+                <div class="form-group full-width">
+                  <label>Công nhân:</label>
+                  <input type="text" id="edit-cn-${id}" value="${data.cn || ''}" />
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="popup-actions">
+            <button class="btn-save" data-action="save" data-id="${id}">💾 Lưu</button>
+            <button class="btn-cancel" data-action="cancel" data-id="${id}">❌ Hủy</button>
+          </div>
+        </div>
+      `;
+    }
+    
+    // Hàm chuyển sang chế độ chỉnh sửa
+    function switchToEditMode(id) {
+      console.log('Chuyển sang chế độ chỉnh sửa cho ID:', id);
+      
+      const marker = markers.find(m => m.treeData && m.treeData.id === id);
+      if (!marker) {
+        console.error('Không tìm thấy marker với ID:', id);
+        return;
+      }
+      
+      console.log('Tìm thấy marker:', marker);
+      
+      // Tạo popup mới
+      const editPopupContent = createEditPopup(id, marker.treeData);
+      console.log('Nội dung popup chỉnh sửa:', editPopupContent);
+      
+      // Bind popup mới
+      marker.bindPopup(editPopupContent);
+      
+      // Mở popup
+      marker.openPopup();
+      
+      // Focus vào trường đầu tiên sau khi popup mở
+      setTimeout(() => {
+        const firstInput = document.getElementById(`edit-ten-${id}`);
+        if (firstInput) {
+          firstInput.focus();
+          console.log('Đã focus vào trường đầu tiên');
+          
+          // Thêm event listener cho phím Enter
+          const inputs = document.querySelectorAll(`#popup-${id} input, #popup-${id} select`);
+          inputs.forEach(input => {
+            input.addEventListener('keydown', function(e) {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                saveTreeEdit(id);
+              }
+            });
+          });
+        } else {
+          console.warn('Không tìm thấy trường input đầu tiên');
+        }
+      }, 200);
+    }
+    
+    // Hàm chuyển sang chế độ xem
+    function switchToViewMode(id) {
+      console.log('Chuyển sang chế độ xem cho ID:', id);
+      
+      const marker = markers.find(m => m.treeData && m.treeData.id === id);
+      if (!marker) {
+        console.error('Không tìm thấy marker với ID:', id);
+        return;
+      }
+      
+      // Tạo popup mới
+      const viewPopupContent = createViewPopup(id, marker.treeData);
+      
+      // Bind popup mới
+      marker.bindPopup(viewPopupContent);
+      
+      // Mở popup
+      marker.openPopup();
+    }
+    
+    // Hàm đóng popup
+    function closePopup(id) {
+      const marker = markers.find(m => m.treeData && m.treeData.id === id);
+      if (marker) {
+        marker.closePopup();
+      }
+    }
+    
+    // Hàm toggle popup content (thu gọn/mở rộng)
+    function togglePopupContent(id) {
+      const popup = document.getElementById(`popup-${id}`);
+      if (!popup) return;
+      
+      const header = popup.querySelector('.popup-header');
+      const content = popup.querySelector('.popup-content');
+      const actions = popup.querySelector('.popup-actions');
+      
+      if (header && content && actions) {
+        const isCollapsed = header.classList.contains('collapsed');
+        
+        if (isCollapsed) {
+          // Mở rộng
+          header.classList.remove('collapsed');
+          header.classList.add('expanded');
+          content.classList.remove('collapsed');
+          actions.classList.remove('collapsed');
+        } else {
+          // Thu gọn
+          header.classList.remove('expanded');
+          header.classList.add('collapsed');
+          content.classList.add('collapsed');
+          actions.classList.add('collapsed');
+        }
+      }
+    }
+    
+    // Hàm lưu chỉnh sửa cây - Phiên bản mới đơn giản
+    function saveTreeEdit(id) {
+      try {
+        console.log('Bắt đầu lưu cây với ID:', id);
+        
+        // Kiểm tra ID hợp lệ
+        if (!id || id.trim() === '') {
+          throw new Error('ID cây không hợp lệ!');
+        }
+        
+        // Lấy dữ liệu từ form
+        const formData = {
+          ten: document.getElementById(`edit-ten-${id}`)?.value || '',
+          namTrong: document.getElementById(`edit-nam-${id}`)?.value || '',
+          ngayTrong: document.getElementById(`edit-ngay-${id}`)?.value || '',
+          chatLuong: document.getElementById(`edit-chatluong-${id}`)?.value || '',
+          tinhtrangbenh: document.getElementById(`edit-benh-${id}`)?.value || '',
+          tennt: document.getElementById(`edit-tennt-${id}`)?.value || '',
+          tengd: document.getElementById(`edit-tengd-${id}`)?.value || '',
+          tendoi: document.getElementById(`edit-tendoi-${id}`)?.value || '',
+          tendt: document.getElementById(`edit-tendt-${id}`)?.value || '',
+          tenlo: document.getElementById(`edit-tenlo-${id}`)?.value || '',
+          tentt: document.getElementById(`edit-tentt-${id}`)?.value || '',
+          cn: document.getElementById(`edit-cn-${id}`)?.value || ''
+        };
+        
+        console.log('Dữ liệu form:', formData);
+        
+        // Kiểm tra các trường bắt buộc
+        if (!formData.ten.trim()) {
+          throw new Error('Tên cây không được để trống!');
+        }
+        
+        // Tìm marker
+        const marker = markers.find(m => m.treeData && m.treeData.id === id);
+        if (!marker) {
+          throw new Error('Không tìm thấy cây để cập nhật!');
+        }
+        
+        // Cập nhật marker data
+        Object.assign(marker.treeData, formData);
+        
+        // Cập nhật allTreeData
+        const dataIndex = allTreeData.findIndex(row => {
+          const rowId = (row.id || row.ID || row.Id || '').toString().trim();
+          return rowId === id;
+        });
+        if (dataIndex !== -1) {
+          allTreeData[dataIndex] = { ...allTreeData[dataIndex], ...formData };
+          console.log('Đã cập nhật allTreeData tại index:', dataIndex);
+        } else {
+          console.warn('Không tìm thấy dữ liệu trong allTreeData cho ID:', id);
+        }
+        
+        // Cập nhật màu marker
+        const colors = {
+          'Tốt': '#27ae60',
+          'Trung bình': '#f39c12', 
+          'Kém': '#e74c3c'
+        };
+        const markerColor = colors[formData.chatLuong] || '#95a5a6';
+        marker.setStyle({ color: markerColor, fillColor: markerColor });
+        
+        // Chuyển sang popup xem thông tin với thông báo đã lưu
+        const updatedData = { ...marker.treeData, saved: true };
+        marker.bindPopup(createViewPopup(id, updatedData));
+        marker.openPopup(); // Mở popup mới ngay lập tức
+        
+        // Cập nhật filters
+        updateFilterOptions();
+        updateStats(markers.length, {}, {}, {});
+        
+        console.log('Lưu thành công!');
+        // Thay vì alert, hiển thị thông báo trong popup
+        
+      } catch (error) {
+        console.error('Lỗi khi lưu:', error);
+        alert('Lỗi: ' + error.message);
+      }
+    }
+    
+    // Hàm xuất dữ liệu đã chỉnh sửa ra file Excel
+    function exportUpdatedData() {
+      if (allTreeData.length === 0) {
+        console.warn('Không có dữ liệu để xuất');
+        return;
+      }
+      
+      try {
+        // Tạo workbook mới
+        const wb = XLSX.utils.book_new();
+        
+        // Chuẩn bị dữ liệu để xuất
+        const exportData = allTreeData.map(row => {
+          // Tìm marker tương ứng để lấy tọa độ mới nhất
+          const marker = markers.find(m => m.treeData && m.treeData.id === (row.id || row.ID || row.Id || '').toString().trim());
+          
+          return {
+            'ID': row.id || row.ID || row.Id || '',
+            'Tên cây': row.ten || '',
+            'Năm trồng': row.nam_trong || '',
+            'Ngày trồng': row.ngaytrong || '',
+            'Chất lượng': row.chat_luong || '',
+            'Tình trạng bệnh': row.tinhtrangbenh || '',
+            'Màu cây': row.mauCay || '',
+            'Màu': row.mau || '',
+            'Tên nông trường': row.tennt || '',
+            'Tên giám đốc nông trường': row.tengd || '',
+            'Tên đội': row.tendoi || '',
+            'Tên đội trưởng': row.tendt || '',
+            'Tên lô': row.tenlo || '',
+            'Tên tổ trưởng': row.tentt || '',
+            'Tên công nhân': row.cn || '',
+            'Tọa độ X': marker ? marker.treeData.lat : (row.lat || ''),
+            'Tọa độ Y': marker ? marker.treeData.lon : (row.lon || ''),
+            'Thời gian chỉnh sửa': new Date().toLocaleString('vi-VN')
+          };
+        });
+        
+        // Tạo worksheet
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        
+        // Đặt độ rộng cột
+        const colWidths = [
+          { wch: 8 },   // ID
+          { wch: 15 },  // Tên cây
+          { wch: 10 },  // Năm trồng
+          { wch: 12 },  // Ngày trồng
+          { wch: 12 },  // Chất lượng
+          { wch: 15 },  // Tình trạng bệnh
+          { wch: 10 },  // Màu cây
+          { wch: 10 },  // Màu
+          { wch: 15 },  // Tên nông trường
+          { wch: 20 },  // Tên giám đốc
+          { wch: 12 },  // Tên đội
+          { wch: 15 },  // Tên đội trưởng
+          { wch: 10 },  // Tên lô
+          { wch: 15 },  // Tên tổ trưởng
+          { wch: 15 },  // Tên công nhân
+          { wch: 12 },  // Tọa độ X
+          { wch: 12 },  // Tọa độ Y
+          { wch: 20 }   // Thời gian chỉnh sửa
+        ];
+        ws['!cols'] = colWidths;
+        
+        // Thêm worksheet vào workbook
+        XLSX.utils.book_append_sheet(wb, ws, 'CayTrong_DaChinhSua');
+        
+        // Tạo tên file với timestamp
+        const now = new Date();
+        const timestamp = now.toISOString().slice(0, 19).replace(/:/g, '-');
+        const fileName = `CayTrong_DaChinhSua_${timestamp}.xlsx`;
+        
+        // Xuất file
+        XLSX.writeFile(wb, fileName);
+        
+        console.log(`Đã xuất file Excel: ${fileName}`);
+        
+      } catch (error) {
+        console.error('Lỗi khi xuất file Excel:', error);
+        alert('Có lỗi khi xuất file Excel: ' + error.message);
+      }
+    }
+
+    // Hàm chuyển từ chế độ xem sang chế độ chỉnh sửa
+
+    // Hàm hủy chỉnh sửa cây - Chuyển về chế độ xem
+    function cancelTreeEdit(id) {
+      switchToViewMode(id);
+    }
+
+    function editTree(id, ten, namTrong, ngayTrong, chatLuong, tinhtrangbenh, mauCay, mau, tennt, tengd, tendoi, tendt, tenlo, tentt, cn) {
+      document.getElementById('editId').value = id;
+      document.getElementById('editTen').value = ten;
+      document.getElementById('editNam').value = namTrong;
+      document.getElementById('editNgayTrong').value = formatDateFromExcel(ngayTrong);
+      document.getElementById('editChatLuong').value = chatLuong;
+      document.getElementById('editTinhtrangbenh').value = tinhtrangbenh;
+      document.getElementById('editMauCay').value = mauCay;
+      document.getElementById('editMau').value = mau;
+      document.getElementById('editTennt').value = tennt;
+      document.getElementById('editTengd').value = tengd;
+      document.getElementById('editTendoi').value = tendoi;
+      document.getElementById('editTendt').value = tendt;
+      document.getElementById('editTenlo').value = tenlo;
+      document.getElementById('editTentt').value = tentt;
+      document.getElementById('editCn').value = cn;
+      document.getElementById('editModal').style.display = 'block';
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').style.display = 'none';
+    }
+
+    function saveTreeEditModal() {
+      const id = document.getElementById('editId').value;
+      const ten = document.getElementById('editTen').value;
+      const mauCay = document.getElementById('editMauCay').value;
+      const namTrong = document.getElementById('editNam').value;
+      const ngayTrong = document.getElementById('editNgayTrong').value;
+      const chatLuong = document.getElementById('editChatLuong').value;
+      const mau = document.getElementById('editMau').value;
+      const tinhtrangbenh = document.getElementById('editTinhtrangbenh').value;
+      const tennt = document.getElementById('editTennt').value;
+      const tengd = document.getElementById('editTengd').value;
+      const tendoi = document.getElementById('editTendoi').value;
+      const tendt = document.getElementById('editTendt').value;
+      const tenlo = document.getElementById('editTenlo').value;
+      const tentt = document.getElementById('editTentt').value;
+      const cn = document.getElementById('editCn').value;
+
+      // Cập nhật marker
+      const marker = markers.find(m => m.treeData.id === id);
+      if (marker) {
+        marker.treeData.ten = ten;
+        marker.treeData.mauCay = mauCay;
+        marker.treeData.namTrong = namTrong;
+        marker.treeData.ngayTrong = ngayTrong;
+        marker.treeData.chatLuong = chatLuong;
+        marker.treeData.mau = mau;
+        marker.treeData.tinhtrangbenh = tinhtrangbenh;
+        marker.treeData.tennt = tennt;
+        marker.treeData.tengd = tengd;
+        marker.treeData.tendoi = tendoi;
+        marker.treeData.tendt = tendt;
+        marker.treeData.tenlo = tenlo;
+        marker.treeData.tentt = tentt;
+        marker.treeData.cn = cn;
+
+        // Cập nhật màu sắc
+        let newMau = 'green';
+        if (mauCay) {
+          newMau = mauCay.toLowerCase();
+        } else if (mau) {
+          newMau = mau.toLowerCase();
+        } else if (chatLuong.toLowerCase().includes('tốt')) {
+          newMau = 'green';
+        } else if (chatLuong.toLowerCase().includes('trung bình')) {
+          newMau = 'orange';
+        } else if (chatLuong.toLowerCase().includes('xấu')) {
+          newMau = 'red';
+        }
+
+        marker.treeData.markerColor = newMau;
+        marker.setStyle({ color: newMau, fillColor: newMau });
+
+        // Cập nhật popup với thông tin mới
+        const data = marker.treeData;
+        marker.bindPopup(`
+          <div style="min-width: 220px;">
+            <h4 style="margin: 0 0 8px 0; color: #2c3e50; background: #f8f9fa; padding: 8px; border-radius: 4px; border-left: 4px solid #3498db;">
+              🆔 ID: ${data.id}
+            </h4>
+            <p style="margin: 2px 0;"><strong>Tên cây:</strong> <span style="color: ${data.mauCay || 'black'}; font-weight: bold;">${data.ten}</span></p>
+            <p style="margin: 2px 0;"><strong>Năm trồng:</strong> ${data.namTrong}</p>
+            ${data.ngayTrong ? `<p style="margin: 2px 0;"><strong>Ngày trồng:</strong> ${formatDateFromExcel(data.ngayTrong)}</p>` : ''}
+            <p style="margin: 2px 0;"><strong>Chất lượng:</strong> <span style="color: ${data.mau || 'black'}; font-weight: bold;">${data.chatLuong || 'Chưa xác định'}</span></p>
+            ${data.tinhtrangbenh ? `<p style="margin: 2px 0;"><strong>Tình trạng bệnh:</strong> <span style="color: #e74c3c;">${data.tinhtrangbenh}</span></p>` : ''}
+            
+            <div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; border-left: 3px solid #27ae60;">
+              <h5 style="margin: 0 0 6px 0; color: #27ae60; font-size: 12px;">📋 Thông tin quản lý:</h5>
+              ${data.tennt ? `<p style="margin: 2px 0; font-size: 11px;"><strong>Tên nông trường:</strong> ${data.tennt}</p>` : ''}
+              ${data.tengd ? `<p style="margin: 2px 0; font-size: 11px;"><strong>Giám đốc:</strong> ${data.tengd}</p>` : ''}
+              ${data.tendoi ? `<p style="margin: 2px 0; font-size: 11px;"><strong>Tên đội:</strong> ${data.tendoi}</p>` : ''}
+              ${data.tenlo ? `<p style="margin: 2px 0; font-size: 11px;"><strong>Tên lô:</strong> ${data.tenlo}</p>` : ''}
+              ${data.tentt ? `<p style="margin: 2px 0; font-size: 11px;"><strong>Tên tổ trưởng:</strong> ${data.tentt}</p>` : ''}
+              ${data.cn ? `<p style="margin: 2px 0; font-size: 11px;"><strong>Công nhân:</strong> ${data.cn}</p>` : ''}
+            </div>
+            
+            <div style="margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap;">
+              <button onclick="editTree('${data.id}', '${data.ten}', '${data.namTrong}', '${data.ngayTrong}', '${data.chatLuong}', '${data.tinhtrangbenh}', '${data.mauCay}', '${data.mau}', '${data.tennt}', '${data.tengd}', '${data.tendoi}', '${data.tendt}', '${data.tenlo}', '${data.tentt}', '${data.cn}')" style="padding: 4px 8px; background: #e67e22; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                ✏️ Sửa
+              </button>
+            </div>
+          </div>
+        `);
+      }
+      
+      // Cập nhật dữ liệu gốc
+      const dataIndex = allTreeData.findIndex(row => (row.id || row.ID) === id);
+      if (dataIndex !== -1) {
+        allTreeData[dataIndex].ten = ten;
+        allTreeData[dataIndex].mau_cay = mauCay;
+        allTreeData[dataIndex].nam_trong = namTrong;
+        allTreeData[dataIndex].ngaytrong = ngayTrong;
+        allTreeData[dataIndex].chat_luong = chatLuong;
+        allTreeData[dataIndex].mau = mau;
+        allTreeData[dataIndex].tinhtrangbenh = tinhtrangbenh;
+        allTreeData[dataIndex].tennt = tennt;
+        allTreeData[dataIndex].tengd = tengd;
+        allTreeData[dataIndex].tendoi = tendoi;
+        allTreeData[dataIndex].tendt = tendt;
+        allTreeData[dataIndex].tenlo = tenlo;
+        allTreeData[dataIndex].tentt = tentt;
+        allTreeData[dataIndex].cn = cn;
+      }
+
+      // Thêm ID vào danh sách cây đã chỉnh sửa
+      editedTreesList.add(id);
+
+      // Cập nhật lại bộ lọc và thống kê
+      updateFilterOptions();
+      
+      // Tính toán lại thống kê từ markers
+      let tong = 0;
+      let chatLuongStats = {};
+      let loaiCayStats = {};
+      let colorStats = {};
+      
+      markers.forEach(marker => {
+        const data = marker.treeData;
+        chatLuongStats[data.chatLuong] = (chatLuongStats[data.chatLuong] || 0) + 1;
+        loaiCayStats[data.ten] = (loaiCayStats[data.ten] || 0) + 1;
+        colorStats[data.markerColor] = (colorStats[data.markerColor] || 0) + 1;
+        tong++;
+      });
+      
+      updateStats(tong, chatLuongStats, loaiCayStats, colorStats);
+      updateManagementStats(allTreeData);
+      
+      // Cập nhật thống kê từ dữ liệu đã lọc sau khi chỉnh sửa
+      const filteredData = getFilteredData();
+      console.log('Cập nhật thống kê sau khi chỉnh sửa:', filteredData.length, 'items');
+      updateDataStatsPanel(filteredData);
+
+      closeEditModal();
+      
+      // Thông báo thành công
+      alert('Đã lưu thông tin cây thành công!');
+    }
+
+    // Chức năng thu gọn/mở rộng
+    function toggleControlGroup(element) {
+      element.classList.toggle('collapsed');
+      const content = element.nextElementSibling;
+      content.classList.toggle('collapsed');
+    }
+
+    function toggleControlPanel() {
+      const panel = document.querySelector('.control-panel');
+      const content = panel.querySelector('.control-panel-content');
+      const btn = panel.querySelector('.minimize-btn');
+      
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        btn.textContent = '−';
+        btn.title = 'Thu gọn';
+      } else {
+        content.style.display = 'none';
+        btn.textContent = '+';
+        btn.title = 'Mở rộng';
+      }
+    }
+
+
+    function toggleChartContainer() {
+      const container = document.getElementById('chartContainer');
+      const canvases = container.querySelectorAll('canvas');
+      const btn = container.querySelector('.minimize-btn');
+      
+      if (canvases[0].style.display === 'none') {
+        canvases.forEach(canvas => canvas.style.display = 'block');
+        btn.textContent = '−';
+        btn.title = 'Thu gọn';
+      } else {
+        canvases.forEach(canvas => canvas.style.display = 'none');
+        btn.textContent = '+';
+        btn.title = 'Mở rộng';
+      }
+    }
+
+
+    function toggleLegend() { /* legend removed */ }
+
+    // Chức năng vẽ đa giác
+    function startPolygonDrawing() {
+      // Xóa mode cũ
+      if (currentDrawingMode) {
+        document.getElementById('polygonBtn').classList.remove('active');
+        if (polygonHandler) {
+          polygonHandler.disable();
+        }
+      }
+      
+      // Kiểm tra nếu đang ở chế độ vẽ đa giác
+      if (currentDrawingMode === 'polygon') {
+        currentDrawingMode = null;
+        document.getElementById('polygonBtn').classList.remove('active');
+        if (polygonHandler) {
+          polygonHandler.disable();
+        }
+        return;
+      }
+      
+      currentDrawingMode = 'polygon';
+      document.getElementById('polygonBtn').classList.add('active');
+      
+      // Tạo polygon handler
+      polygonHandler = new L.Draw.Polygon(map, {
+        allowIntersection: false,
+        showArea: true,
+        drawError: {
+          color: '#e1e100',
+          message: '<strong>Lỗi:</strong> Hình dạng không hợp lệ!'
+        },
+        shapeOptions: {
+          color: '#bada55',
+          weight: 2,
+          fillOpacity: 0.3
+        }
+      });
+      
+      // Kích hoạt handler
+      polygonHandler.enable();
+      
+      
+      // Lắng nghe sự kiện vẽ xong
+      map.on(L.Draw.Event.CREATED, function(event) {
+        const layer = event.layer;
+        drawnItems.addLayer(layer);
+        if (layer instanceof L.Polygon) {
+          // Tính diện tích chính xác theo WGS84
+          const latLngs = layer.getLatLngs()[0];
+          let area = 0;
+          
+          // Sử dụng công thức tính diện tích trên mặt cầu
+          for (let i = 0; i < latLngs.length; i++) {
+            const j = (i + 1) % latLngs.length;
+            const lat1 = latLngs[i].lat * Math.PI / 180;
+            const lng1 = latLngs[i].lng * Math.PI / 180;
+            const lat2 = latLngs[j].lat * Math.PI / 180;
+            const lng2 = latLngs[j].lng * Math.PI / 180;
+            
+            area += (lng2 - lng1) * (2 + Math.sin(lat1) + Math.sin(lat2));
+          }
+          
+          // Bán kính Trái Đất (mét)
+          const R = 6371000;
+          area = Math.abs(area * R * R / 2);
+          
+          const areaM2 = area.toFixed(2);
+          const areaHa = (area / 10000).toFixed(2);
+          layer.areaM2 = areaM2;
+          layer.areaHa = areaHa;
+          layer.bindPopup(`Diện tích: ${areaM2} m² (${areaHa} ha)`);
+        }
+        
+        // Tắt chế độ vẽ sau khi vẽ xong
+        currentDrawingMode = null;
+        document.getElementById('polygonBtn').classList.remove('active');
+        if (polygonHandler) {
+          polygonHandler.disable();
+        }
+        
+      });
+
+      // Bỏ cập nhật bảng tổng hợp
+    }
+
+    function clearDrawings() {
+      if (drawnItems.getLayers().length === 0 && distanceLayer.getLayers().length === 0) {
+        return;
+      }
+      
+      drawnItems.clearLayers();
+      clearDistanceMeasure();
+      
+      // Tắt các chế độ vẽ
+      if (currentDrawingMode) {
+        currentDrawingMode = null;
+        document.getElementById('polygonBtn').classList.remove('active');
+        if (polygonHandler) {
+          polygonHandler.disable();
+        }
+      }
+      
+      if (distanceMode) {
+        distanceMode = false;
+        document.getElementById('distanceBtn').classList.remove('active');
+      }
+    }
+
+    
+    
+    // Hàm bắt đầu đo khoảng cách
+    function startDistanceMeasure() {
+      // Tắt mode cũ
+      if (currentDrawingMode) {
+        document.getElementById('polygonBtn').classList.remove('active');
+        if (polygonHandler) {
+          polygonHandler.disable();
+        }
+      }
+      
+      // Kiểm tra nếu đang ở chế độ đo khoảng cách
+      if (distanceMode) {
+        distanceMode = false;
+        document.getElementById('distanceBtn').classList.remove('active');
+        clearDistanceMeasure();
+        return;
+      }
+      
+      distanceMode = true;
+      document.getElementById('distanceBtn').classList.add('active');
+      clearDistanceMeasure();
+      // Con trỏ chữ thập khi ở chế độ đo khoảng cách
+      try { map.getContainer().style.cursor = 'crosshair'; } catch(_) {}
+      
+      // Cập nhật status bar
+      document.getElementById('statusBar').textContent = 
+        `Chế độ đo khoảng cách | Click trên bản đồ để thêm điểm | Double-click để kết thúc`;
+    }
+    
+    // Hàm thêm điểm đo khoảng cách
+    function addDistancePoint(latlng) {
+      distancePoints.push(latlng);
+      
+      // Nếu có ít nhất 2 điểm, vẽ đường nối liên tục
+      if (distancePoints.length >= 2) {
+        // Xóa đường cũ nếu có
+        if (distanceLines.length > 0) {
+          distanceLayer.removeLayer(distanceLines[0]);
+        }
+        
+        // Vẽ đường mới với tất cả các điểm
+        const line = L.polyline(distancePoints, {
+          color: '#ff0000',
+          weight: 4,
+          opacity: 0.9,
+          dashArray: '8, 8'
+        }).addTo(distanceLayer);
+        
+        distanceLines = [line]; // Chỉ giữ 1 đường duy nhất
+        
+        // Cập nhật tổng khoảng cách
+        updateTotalDistance();
+      }
+      
+      // Tạo marker draggable cho điểm vừa thêm (có thể kéo sửa điểm)
+      const pointMarker = L.circleMarker(latlng, { radius: 5, color: '#ff0000', fillColor: '#ff0000', fillOpacity: 0.9, weight: 2, draggable: true });
+      // Biến circleMarker không hỗ trợ draggable native -> dùng marker với icon nhỏ
+      const handle = L.marker(latlng, { draggable: true, icon: L.divIcon({className:'distance-handle', html:'', iconSize:[8,8]}) }).addTo(distanceLayer);
+      handle.on('drag', function(e){
+        const idx = distancePoints.length - 1;
+        distancePoints[idx] = e.target.getLatLng();
+        // Vẽ lại đường
+        if (distanceLines.length > 0) distanceLayer.removeLayer(distanceLines[0]);
+        if (distancePoints.length >= 2) {
+          const line = L.polyline(distancePoints, { color: '#ff0000', weight: 4, opacity: 0.9, dashArray: '8, 8' }).addTo(distanceLayer);
+          distanceLines = [line];
+        }
+        updateTotalDistance();
+      });
+
+      // Cập nhật status bar
+      const totalDistance = calculateTotalDistance();
+      const totalKm = (totalDistance / 1000).toFixed(2);
+      const totalM = totalDistance.toFixed(2);
+      
+      document.getElementById('statusBar').textContent = 
+        `Điểm ${distancePoints.length} | Tổng: ${totalM}m (${totalKm}km) | Double-click để kết thúc`;
+    }
+    
+    // Hàm tính tổng khoảng cách
+    function calculateTotalDistance() {
+      if (distancePoints.length < 2) return 0;
+      
+      let totalDistance = 0;
+      for (let i = 1; i < distancePoints.length; i++) {
+        totalDistance += distancePoints[i].distanceTo(distancePoints[i - 1]);
+      }
+      return totalDistance;
+    }
+    
+    // Hàm cập nhật tổng khoảng cách
+    function updateTotalDistance() {
+      if (distancePoints.length < 2) return;
+      
+      const totalDistance = calculateTotalDistance();
+      const totalKm = (totalDistance / 1000).toFixed(2);
+      const totalM = totalDistance.toFixed(2);
+      
+      // Xóa label tổng cũ nếu có
+      distanceMarkers.forEach(marker => {
+        if (marker.options.icon && marker.options.icon.options.className === 'distance-total') {
+          distanceLayer.removeLayer(marker);
+        }
+      });
+      
+      // Tạo label tổng khoảng cách ở điểm giữa của đường
+      const midIndex = Math.floor(distancePoints.length / 2);
+      const midPoint = distancePoints[midIndex];
+      
+      const totalLabel = L.marker(midPoint, {
+        icon: L.divIcon({
+          className: 'distance-total',
+          html: `Tổng: ${totalM}m (${totalKm}km)`,
+          iconSize: [140, 35],
+          iconAnchor: [70, 17]
+        })
+      }).addTo(distanceLayer);
+      
+      distanceMarkers = [totalLabel]; // Chỉ giữ 1 label duy nhất
+    }
+    
+    // Hàm xóa đo khoảng cách
+    function clearDistanceMeasure() {
+      distanceLayer.clearLayers();
+      distancePoints = [];
+      distanceLines = [];
+      distanceMarkers = [];
+      // Trả lại con trỏ mặc định
+      try { map.getContainer().style.cursor = ''; } catch(_) {}
+    }
+    
+    // Event listener cho double-click để kết thúc đo khoảng cách
+    map.on('dblclick', function(e) {
+      if (distanceMode && distancePoints.length >= 2) {
+        distanceMode = false;
+        document.getElementById('distanceBtn').classList.remove('active');
+        // Trả lại con trỏ mặc định khi kết thúc đo
+        try { map.getContainer().style.cursor = ''; } catch(_) {}
+        
+        // Cập nhật status bar
+        const totalDistance = calculateTotalDistance();
+        const totalKm = (totalDistance / 1000).toFixed(2);
+        const totalM = totalDistance.toFixed(2);
+        
+        document.getElementById('statusBar').textContent = 
+          `Hoàn thành đo khoảng cách | Tổng: ${totalM}m (${totalKm}km) | Cây: ${markers.length}`;
+      }
+    });
+
+    function countTreesInArea() {
+      if (drawnItems.getLayers().length === 0) {
+        return;
+      }
+      
+      // Lấy vùng cuối cùng được vẽ
+      const layers = drawnItems.getLayers();
+      const lastLayer = layers[layers.length - 1];
+      
+      if (!(lastLayer instanceof L.Polygon)) {
+        return;
+      }
+      
+      const areaBounds = lastLayer.getBounds();
+      
+      // Đếm cây trong vùng
+      let treesInArea = [];
+      let statusCount = {};
+      let typeCount = {};
+      let diseaseCount = {};
+      
+      markers.forEach(marker => {
+        const latLng = marker.getLatLng();
+        if (areaBounds.contains(latLng)) {
+          const data = marker.treeData;
+          treesInArea.push(data);
+          
+          // Đếm theo chất lượng
+          statusCount[data.chatLuong] = (statusCount[data.chatLuong] || 0) + 1;
+          
+          // Đếm theo loại cây
+          typeCount[data.ten] = (typeCount[data.ten] || 0) + 1;
+          
+          // Đếm theo tình trạng bệnh
+          if (data.tinhtrangbenh) {
+            diseaseCount[data.tinhtrangbenh] = (diseaseCount[data.tinhtrangbenh] || 0) + 1;
+          }
+        }
+      });
+      
+      // Hiển thị kết quả
+      showAreaInfo(lastLayer, treesInArea, statusCount, typeCount, diseaseCount);
+    }
+
+    function showAreaInfo(layer, treesInArea, statusCount, typeCount, diseaseCount) {
+      const areaM2 = layer.areaM2 || 'N/A';
+      const areaHa = layer.areaHa || 'N/A';
+      const totalTrees = treesInArea.length;
+      const density = layer.areaHa ? (totalTrees / layer.areaHa).toFixed(2) : 0;
+      
+      let html = `
+        <h4 style="margin: 0 0 6px 0;">🌳 Thống kê vùng đã chọn</h4>
+        <p style="margin: 2px 0;"><strong>Diện tích:</strong> ${areaM2} m² (${areaHa} ha)</p>
+        <p style="margin: 2px 0;"><strong>Tổng số cây:</strong> ${totalTrees}</p>
+        <p style="margin: 2px 0 6px 0;"><strong>Mật độ:</strong> ${density} cây/ha</p>
+        
+        <h5 style="margin: 4px 0;">📊 Theo chất lượng:</h5>
+      `;
+      
+      for (let quality in statusCount) {
+        const percentage = totalTrees > 0 ? ((statusCount[quality]/totalTrees)*100).toFixed(1) : 0;
+        html += `<p style="margin: 2px 0; font-size: 11px;">• ${quality}: ${statusCount[quality]} (${percentage}%)</p>`;
+      }
+      
+      html += `<h5 style="margin: 6px 0 4px 0;">🌱 Top loại cây:</h5>`;
+      const sortedTypes = Object.entries(typeCount)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 5);
+      
+      sortedTypes.forEach(([name, count], index) => {
+        const percentage = totalTrees > 0 ? ((count/totalTrees)*100).toFixed(1) : 0;
+        html += `<p style="margin: 2px 0; font-size: 11px;">${index + 1}. ${name}: ${count} (${percentage}%)</p>`;
+      });
+      
+      // Thêm thống kê tình trạng bệnh
+      if (Object.keys(diseaseCount).length > 0) {
+        html += `<h5 style="margin: 6px 0 4px 0;">🏥 Tình trạng bệnh:</h5>`;
+        Object.entries(diseaseCount)
+          .sort(([,a], [,b]) => b - a)
+          .forEach(([benh, count]) => {
+            const percentage = totalTrees > 0 ? ((count/totalTrees)*100).toFixed(1) : 0;
+            html += `<p style="margin: 2px 0; font-size: 11px;">• ${benh}: ${count} (${percentage}%)</p>`;
+          });
+      }
+      
+      html += `<button onclick="closeAreaInfo()" style="margin-top: 8px; padding: 4px 8px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Đóng</button>`;
+      
+      // Tạo popup hiển thị thông tin
+      layer.bindPopup(html).openPopup();
+    }
+
+    function closeAreaInfo() {
+      // Đóng popup hiện tại
+      map.closePopup();
+    }
+
+    // Cập nhật hàm updateStats để giảm font chữ
+    function updateStats(tong, tinhTrangStats, loaiCayStats, colorStats) {
+      let html = `<div style="font-weight: bold; color: #2c3e50; margin-bottom: 6px; font-size: 10px;">🌳 Tổng số cây: ${tong}</div>`;
+
+      html += `<div style="margin-bottom: 6px; font-size: 9px;"><strong>📌 Chất lượng:</strong></div>`;
+      for (let k in tinhTrangStats) {
+        const pct = ((tinhTrangStats[k]/tong)*100).toFixed(1);
+        html += `<div style="margin-left: 8px; font-size: 8px;">• ${k}: ${tinhTrangStats[k]} (${pct}%)</div>`;
+      }
+
+      html += `<div style="margin: 6px 0; font-size: 9px;"><strong>🌱 Loại cây:</strong></div>`;
+      for (let k in loaiCayStats) {
+        const pct = ((loaiCayStats[k]/tong)*100).toFixed(1);
+        html += `<div style="margin-left: 8px; font-size: 8px;">• ${k}: ${loaiCayStats[k]} (${pct}%)</div>`;
+      }
+
+      const statsEl = document.getElementById('stats');
+      if (statsEl) {
+        statsEl.innerHTML = html;
+      }
+    }
+
+
+    // Hàm cập nhật thông tin lọc trong legend
+    function updateFilterInfo() {
+      const filterInfo = document.getElementById('filterInfo');
+      if (!filterInfo) return;
+      
+      const searchTerm = document.getElementById('searchBox').value;
+      const statusFilter = document.getElementById('statusFilter').value;
+      const typeFilter = document.getElementById('typeFilter').value;
+      const yearFilter = document.getElementById('yearFilter').value;
+      
+      let html = '<h5>🔍 Điều kiện lọc hiện tại:</h5>';
+      
+      if (searchTerm) {
+        html += `<div class="filter-item">
+          <span class="filter-label">Tìm kiếm:</span>
+          <span class="filter-value">"${searchTerm}"</span>
+        </div>`;
+      }
+      
+      if (statusFilter) {
+        html += `<div class="filter-item">
+          <span class="filter-label">Chất lượng:</span>
+          <span class="filter-value">${statusFilter}</span>
+        </div>`;
+      }
+      
+      if (typeFilter) {
+        html += `<div class="filter-item">
+          <span class="filter-label">Loại cây:</span>
+          <span class="filter-value">${typeFilter}</span>
+        </div>`;
+      }
+      
+      if (yearFilter) {
+        html += `<div class="filter-item">
+          <span class="filter-label">Năm trồng:</span>
+          <span class="filter-value">${yearFilter}</span>
+        </div>`;
+      }
+      
+      if (!searchTerm && !statusFilter && !typeFilter && !yearFilter) {
+        html += '<div class="filter-item"><span class="filter-value">Không có điều kiện lọc</span></div>';
+      }
+      
+      filterInfo.innerHTML = html;
+    }
+
+    // Hàm cập nhật legend với thông tin màu sắc
+    function updateLegend() {
+      // legend removed
+    }
+
+    // Hàm hiển thị/ẩn legend
+    function toggleLegend() { /* legend removed */ }
+
+    function showLegend() { /* legend removed */ }
+
+    // function showStatsPanel() { /* removed */ }
+
+    // Hàm điều khiển panel bản đồ
+    function toggleMapPanel() {
+      const panel = document.getElementById('mapPanel');
+      const content = panel.querySelector('.map-panel-content');
+      const btn = panel.querySelector('.minimize-btn');
+      
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        btn.textContent = '−';
+        btn.title = 'Thu gọn';
+      } else {
+        content.style.display = 'none';
+        btn.textContent = '+';
+        btn.title = 'Mở rộng';
+      }
+    }
+
+    // Hàm điều khiển panel thống kê
+    function toggleStatsPanel() {
+      const panel = document.getElementById('statsPanel');
+      const content = panel.querySelector('.stats-panel-content');
+      const btn = panel.querySelector('.minimize-btn');
+      
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        btn.textContent = '−';
+        btn.title = 'Thu gọn';
+      } else {
+        content.style.display = 'none';
+        btn.textContent = '+';
+        btn.title = 'Mở rộng';
+      }
+    }
+
+
+    function toggleClustering() {
+      clusteringEnabled = !clusteringEnabled;
+      const btn = document.getElementById('clusterBtn');
+      btn.textContent = clusteringEnabled ? '📊' : '📈';
+      btn.title = clusteringEnabled ? 'Tắt clustering' : 'Bật clustering';
+      btn.className = clusteringEnabled ? 'map-tool-btn-small active' : 'map-tool-btn-small';
+      updateMarkers();
+      console.log(`Clustering ${clusteringEnabled ? 'bật' : 'tắt'}`);
+    }
+
+    // Hàm kéo thả cho legend
+    function startDrag(event, elementId) {
+      const element = document.getElementById(elementId);
+      const rect = element.getBoundingClientRect();
+      
+      const startX = event.clientX - rect.left;
+      const startY = event.clientY - rect.top;
+      
+      function onMouseMove(e) {
+        let newX = e.clientX - startX;
+        let newY = e.clientY - startY;
+        
+        // Giới hạn trong viewport
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const elementWidth = rect.width;
+        const elementHeight = rect.height;
+        
+        // Giới hạn theo chiều ngang
+        if (newX < 0) newX = 0;
+        if (newX + elementWidth > viewportWidth) newX = viewportWidth - elementWidth;
+        
+        // Giới hạn theo chiều dọc
+        if (newY < 0) newY = 0;
+        if (newY + elementHeight > viewportHeight) newY = viewportHeight - elementHeight;
+        
+        // Kiểm tra va chạm với control panel bên trái
+        const controlPanel = document.querySelector('.control-panel');
+        if (controlPanel && controlPanel.style.display !== 'none') {
+          const controlRect = controlPanel.getBoundingClientRect();
+          const controlLeft = parseFloat(controlPanel.style.left) || controlRect.left;
+          const controlTop = parseFloat(controlPanel.style.top) || controlRect.top;
+          
+          // Tránh va chạm với control panel
+          if (newX + elementWidth > controlLeft && newX < controlLeft + controlRect.width &&
+              newY + elementHeight > controlTop && newY < controlTop + controlRect.height) {
+            // Đẩy sang phải control panel
+            newX = controlLeft + controlRect.width + 10;
+          }
+        }
+        
+        // Kiểm tra va chạm với legend panel
+        const legendPanel = document.getElementById('legend');
+        if (legendPanel && legendPanel.style.display !== 'none') {
+          const legendRect = legendPanel.getBoundingClientRect();
+          const legendLeft = parseFloat(legendPanel.style.left) || legendRect.left;
+          const legendTop = parseFloat(legendPanel.style.top) || legendRect.top;
+          
+          // Tránh va chạm với legend panel
+          if (newX + elementWidth > legendLeft && newX < legendLeft + legendRect.width &&
+              newY + elementHeight > legendTop && newY < legendTop + legendRect.height) {
+            // Đẩy xuống dưới legend panel
+            newY = legendTop + legendRect.height + 10;
+          }
+        }
+        
+        // Kiểm tra va chạm với các panel khác
+        if (elementId === 'mapPanel') {
+          const statsPanel = document.getElementById('statsPanel');
+          if (statsPanel && statsPanel.style.display !== 'none') {
+            const statsRect = statsPanel.getBoundingClientRect();
+            const statsLeft = parseFloat(statsPanel.style.left) || statsRect.left;
+            const statsTop = parseFloat(statsPanel.style.top) || statsRect.top;
+            
+            // Tránh va chạm với stats panel
+            if (newX + elementWidth > statsLeft && newX < statsLeft + statsRect.width &&
+                newY + elementHeight > statsTop && newY < statsTop + statsRect.height) {
+              // Đẩy xuống dưới stats panel
+              newY = statsTop + statsRect.height + 10;
+            }
+          }
+        } else if (elementId === 'statsPanel') {
+          const mapPanel = document.getElementById('mapPanel');
+          if (mapPanel && mapPanel.style.display !== 'none') {
+            const mapRect = mapPanel.getBoundingClientRect();
+            const mapLeft = parseFloat(mapPanel.style.left) || mapRect.left;
+            const mapTop = parseFloat(mapPanel.style.top) || mapRect.top;
+            
+            // Tránh va chạm với map panel
+            if (newX + elementWidth > mapLeft && newX < mapLeft + mapRect.width &&
+                newY + elementHeight > mapTop && newY < mapTop + mapRect.height) {
+              // Đẩy lên trên map panel
+              newY = mapTop - elementHeight - 10;
+              if (newY < 0) newY = 0;
+            }
+          }
+        }
+        
+        element.style.left = newX + 'px';
+        element.style.top = newY + 'px';
+        element.style.right = 'auto';
+        element.style.bottom = 'auto';
+      }
+      
+      function onMouseUp() {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      }
+      
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    }
+
+    // Hàm kéo thả cho chart
+    function startDragChart(event, elementId) {
+      startDrag(event, elementId);
+    }
+
+    // ===== BẢNG THÔNG TIN CHI TIẾT =====
+    
+    // Detail table removed
+    
+    // Lấy màu sắc theo trạng thái
+    function getStatusColor(status) {
+      const colorMap = {
+        'Tốt': '#27ae60',
+        'Trung bình': '#f39c12', 
+        'Kém': '#e74c3c',
+        'Chết': '#95a5a6',
+        'Không xác định': '#6c757d'
+      };
+      return colorMap[status] || '#6c757d';
+    }
+
+    // ===== BẢNG TỔNG HỢP =====
+    function updateSummaryTable() {
+      const panel = document.getElementById('summaryPanel');
+      const treeBody = document.getElementById('summaryTreeBody');
+      const farmBody = document.getElementById('summaryFarmBody');
+      const statusBody = document.getElementById('summaryStatusBody');
+      const activeBox = document.getElementById('summaryActiveFilters');
+      const activeContent = document.getElementById('summaryActiveContent');
+
+      if (!treeBody || !farmBody || !statusBody) return;
+
+      const visibleMarkers = markers.filter(marker => marker.options.opacity > 0.5);
+      
+      // Luôn hiển thị panel bên phải, kể cả khi không có dữ liệu
+      panel.style.display = 'block';
+      if (visibleMarkers.length === 0) {
+        if (treeBody) treeBody.innerHTML = '<tr><td colspan="2">Không có dữ liệu</td></tr>';
+        if (farmBody) farmBody.innerHTML = '<tr><td colspan="2">Không có dữ liệu</td></tr>';
+        if (statusBody) statusBody.innerHTML = '<tr><td colspan="2">Không có dữ liệu</td></tr>';
+        // Vẫn hiển thị phần theo thông tin lọc nếu có filter đang bật
+        const activeFiltersExist = [
+          'statusFilter','typeFilter','yearFilter','tenntFilter','tendoiFilter','tendtFilter','tenloFilter','tenttFilter','cnFilter'
+        ].some(id => { const el = document.getElementById(id); return el && el.value; });
+        const activeBox = document.getElementById('summaryActiveFilters');
+        const activeContent = document.getElementById('summaryActiveContent');
+        if (activeBox && activeContent) {
+          activeBox.style.display = activeFiltersExist ? 'block' : 'none';
+          activeContent.innerHTML = activeFiltersExist ? '<div>Không có dữ liệu theo bộ lọc</div>' : '';
+        }
+        return;
+      }
+      
+      const loaiCayTotals = {};
+      const farmTotals = {}; // gộp theo chuỗi "tennt / tendoi / tenlo"
+      const yearTotals = {};
+      const qualityTotals = {};
+      const diseaseTotals = {};
+
+      visibleMarkers.forEach(marker => {
+        const d = marker.treeData || {};
+        if (d.ten || d.loaiCay) {
+          const key = d.ten || d.loaiCay;
+          loaiCayTotals[key] = (loaiCayTotals[key] || 0) + 1;
+        }
+        const farmKey = [d.tennt, d.tendoi || d.tengd, d.tenlo].filter(Boolean).join(' / ') || 'N/A';
+        farmTotals[farmKey] = (farmTotals[farmKey] || 0) + 1;
+        if (d.namTrong) yearTotals[d.namTrong] = (yearTotals[d.namTrong] || 0) + 1;
+        if (d.chatLuong) qualityTotals[d.chatLuong] = (qualityTotals[d.chatLuong] || 0) + 1;
+        if (d.tinhtrangbenh) diseaseTotals[d.tinhtrangbenh] = (diseaseTotals[d.tinhtrangbenh] || 0) + 1;
+      });
+
+      const renderRows = (obj) => Object.entries(obj)
+        .sort((a,b) => b[1]-a[1])
+        .map(([k,v]) => `<tr><td>${k}</td><td style=\"text-align:right;\"><strong>${v}</strong></td></tr>`)
+        .join('');
+
+      // summary removed
+
+      // Hiển thị nhóm theo thông tin lọc đang bật
+      const filters = [];
+
+      const activeFilters = filters.filter(f => {
+        const el = document.getElementById(f.id);
+        return el && el.value;
+      });
+
+      activeBox.style.display = 'none';
+      activeContent.innerHTML = '';
+    }
+
+    // Tính và cập nhật thống kê theo bộ lọc hiện tại
+    function updateFilterStatsPanel() {
+      const body = document.getElementById('filterStatsBody');
+      if (!body) return;
+
+      const getVal = (id) => {
+        const el = document.getElementById(id);
+        return el && typeof el.value !== 'undefined' ? el.value : '';
+      };
+
+      const f = {
+        status: getVal('statusFilter'),
+        type: getVal('typeFilter'),
+        year: getVal('yearFilter'),
+        tennt: getVal('tenntFilter'),
+        tendoi: getVal('tendoiFilter'),
+        tendt: getVal('tendtFilter'),
+        tenlo: getVal('tenloFilter'),
+        tentt: getVal('tenttFilter'),
+        cn: getVal('cnFilter')
+      };
+
+      const hasAnyFilter = Object.values(f).some(v => v && v !== '');
+
+      const filtered = markers.filter(m => {
+        const d = m.treeData || {};
+        if (f.status && d.chatLuong !== f.status) return false;
+        if (f.type && (d.ten || d.loaiCay) !== f.type) return false;
+        if (f.year && (!d.namTrong || parseInt(d.namTrong) !== parseInt(f.year))) return false;
+        if (f.tennt && d.tennt !== f.tennt) return false;
+        if (f.tendoi && (d.tendoi || d.tengd) !== f.tendoi) return false;
+        if (f.tendt && d.tendt !== f.tendt) return false;
+        if (f.tenlo && d.tenlo !== f.tenlo) return false;
+        if (f.tentt && d.tentt !== f.tentt) return false;
+        if (f.cn && d.cn !== f.cn) return false;
+        return true;
+      });
+
+      const source = hasAnyFilter ? filtered : markers;
+
+      const counts = {
+        'Tổng số cây': source.length,
+        'Theo chất lượng': {},
+        'Theo tên cây': {},
+        'Theo năm trồng': {},
+        'Theo nông trường/đội/lô': {}
+      };
+
+      source.forEach(m => {
+        const d = m.treeData || {};
+        if (d.chatLuong) counts['Theo chất lượng'][d.chatLuong] = (counts['Theo chất lượng'][d.chatLuong] || 0) + 1;
+        const loai = d.ten || d.loaiCay; if (loai) counts['Theo tên cây'][loai] = (counts['Theo tên cây'][loai] || 0) + 1;
+        if (d.namTrong) counts['Theo năm trồng'][d.namTrong] = (counts['Theo năm trồng'][d.namTrong] || 0) + 1;
+        const farmKey = [d.tennt, d.tendoi || d.tengd, d.tenlo].filter(Boolean).join(' / ');
+        if (farmKey) counts['Theo nông trường/đội/lô'][farmKey] = (counts['Theo nông trường/đội/lô'][farmKey] || 0) + 1;
+      });
+
+      const renderGroup = (title, obj) => {
+        if (typeof obj === 'number') return `<tr><td>${title}</td><td><strong>${obj}</strong></td></tr>`;
+        const rows = Object.entries(obj)
+          .sort((a,b)=>b[1]-a[1])
+          .map(([k,v]) => `<tr><td>${title} - ${k}</td><td style=\"text-align:right;\"><strong>${v}</strong></td></tr>`)
+          .join('');
+        return rows || `<tr><td>${title}</td><td>0</td></tr>`;
+      };
+
+      body.innerHTML = [
+        renderGroup('Tổng số cây', counts['Tổng số cây']),
+        renderGroup('Theo chất lượng', counts['Theo chất lượng']),
+        renderGroup('Theo tên cây', counts['Theo tên cây']),
+        renderGroup('Theo năm trồng', counts['Theo năm trồng']),
+        renderGroup('Theo nông trường/đội/lô', counts['Theo nông trường/đội/lô'])
+      ].join('');
+
+      const totalEl = document.getElementById('filterStatsTotal');
+      if (totalEl) totalEl.textContent = `| Tổng: ${source.length}`;
+    }
+
+    // Panel thống kê khi nhập file
+    // removed import stats panel init
+
+
+
+  </script>
+</body>
+</html>
+
