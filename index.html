@@ -103,7 +103,19 @@
     }
   </script>
 
+</script>
 <script>
+// Thiết lập link OneDrive mặc định và tự động load khi mở web
+const defaultOneDriveUrl = 'https://1drv.ms/x/c/b1a405a8fc2fd19c/EYnZYK5AtshMi9MmYrcwhv0BRt3QX6E1VaITc1by9ay2ig?e=D9KIHa';
+if (!localStorage.getItem('googleSheetUrl')) {
+  localStorage.setItem('googleSheetUrl', defaultOneDriveUrl);
+}
+window.addEventListener('DOMContentLoaded', function() {
+  if (typeof loadFromGoogleSheet === 'function') {
+    loadFromGoogleSheet();
+    console.log('Tự động load dữ liệu từ OneDrive khi mở web:', defaultOneDriveUrl);
+  }
+});
 // Tự động reload dữ liệu từ OneDrive mỗi 5 phút
 setInterval(function() {
   const url = localStorage.getItem('googleSheetUrl');
